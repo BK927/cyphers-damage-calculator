@@ -1,0 +1,58 @@
+:root {
+  /* Surfaces — deep slate HUD */
+  --bg: #0c0e14;
+  --panel: #141824;
+  --panel-2: #1b2030;
+  --inset: #0f121b;
+  --line: #232838;
+  --line-2: #333a50;
+
+  /* Text */
+  --text: #e7e9f2;
+  --text-2: #949bb2;
+  --text-3: #596079;
+
+  /* Accents */
+  --accent: #8b7bff;
+  --accent-2: #b3a8ff;
+  --accent-weak: rgba(139, 123, 255, 0.14);
+  --dealer: #ff8a5c;
+  --dealer-weak: rgba(255, 138, 92, 0.12);
+  --tank: #3fd1c4;
+  --tank-weak: rgba(63, 209, 196, 0.12);
+  --evadet: #6aa8ff;
+  --evadet-weak: rgba(106, 168, 255, 0.13);
+  --gold: #ffc861;
+  --gold-weak: rgba(255, 200, 97, 0.13);
+
+  --sans: 'Pretendard', system-ui, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --display: 'Space Grotesk', var(--sans);
+
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  color-scheme: dark;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(139, 123, 255, 0.06), transparent 60%),
+    var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100svh; }
+
+#root {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 22px 20px 64px;
+}
+
+h1, h2 { margin: 0; color: var(--text); font-weight: 600; }
+a { color: var(--accent-2); }
+::selection { background: var(--accent-weak); }
+
+/* number readouts */
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
