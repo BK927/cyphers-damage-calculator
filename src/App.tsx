@@ -75,6 +75,7 @@ const FORMULA_TIP = [
   '· 상대도 같은 게임 시점의 대세 세팅을 입은 것으로 가정',
 ].join('\n')
 
+const FIELD_LABELS = ['딜러', '방탱', '회탱'] as const
 function kitName(k: KitOption): string {
   if (k.name === '킷 없음') return '킷 없음'
   const atk = k.attack > 0, crit = k.crit > 0, pen = (k.penetration ?? 0) > 0
@@ -656,8 +657,11 @@ export default function App() {
         <div className="kit-chips">
           {sortedKits.map(({ kit, per }) => {
             const sig = kitSig(kit)
+            const tip = fieldMode
+              ? `${kitName(kit)} · ${kitStat(kit)}\n\n상대별 한 사이클+궁 기대 데미지 (높을수록 좋음)\n${per.map((v, i) => `· ${FIELD_LABELS[i]}: ${fmt(v)}`).join('\n')}`
+              : `${kitName(kit)} · ${kitStat(kit)}\n\n한 사이클+궁 기대 데미지 ${fmt(per[0])}`
             return (
-              <button key={sig} className={sig === kitSig(selectedKit) ? 'chip on' : 'chip'} onClick={() => setSelKitSig(sig)} title={kitStat(kit)}>
+              <button key={sig} className={sig === kitSig(selectedKit) ? 'chip on' : 'chip'} onClick={() => setSelKitSig(sig)} title={tip}>
                 {sig === bestSig && <i>★</i>}
                 {kit.icon && <img src={itemIcon(kit.icon)} alt="" loading="lazy" onError={hideOnError} />}
                 <b>{kitName(kit)}</b>
@@ -685,7 +689,7 @@ export default function App() {
           <div className="kits-head">
             <span className="kh-title">방어킷</span>
             <span className="kh-legend">
-              받는 피해 기준 생존 사이클 · ★ 종합 최적 · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)
+              숫자 = 상대의 <b>사이클+궁을 버티는 횟수</b> (높을수록 오래 생존) · ★ 종합 최적 · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)
             </span>
           </div>
           <div className="kit-chips">
@@ -693,7 +697,12 @@ export default function App() {
               const sig = kitSig(kit)
               const none = kit.name === '킷 없음'
               const gain = !none && defNoneTotal > 0 && Number.isFinite(total) ? Math.round((total / defNoneTotal - 1) * 100) : 0
-              const tip = none ? kitStat(kit) : `${kitStat(kit)}\n킷 없음 대비 생존 ${gain >= 0 ? '+' : ''}${gain}%`
+              const surv = per.map((v, i) => `· ${FIELD_LABELS[i]} 공격을 ${Number.isFinite(v) ? v.toFixed(1) : '∞'}번 버팀`).join('\n')
+              const head = `${kitName(kit)} · ${kitStat(kit)}`
+              const explain = '각 상대가 한 사이클+궁을 온전히 맞혀 나를 처치하는 데 필요한 횟수\n(예: 1.0 = 딱 한 번에 죽음, 2.0 = 두 번 버팀 · 높을수록 튼튼)'
+              const tip = none
+                ? `${head}\n\n${explain}\n${surv}`
+                : `${head}\n\n${explain}\n${surv}\n\n킷 없음 대비 생존력 ${gain >= 0 ? '+' : ''}${gain}%`
               return (
                 <div key={sig} className="chip static" title={tip}>
                   {sig === defBestSig && <i>★</i>}
