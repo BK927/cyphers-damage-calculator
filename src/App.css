@@ -316,7 +316,16 @@
 .rp-title em { font-style: normal; font-family: var(--sans); font-size: 10.5px; font-weight: 400; color: var(--text-3); margin-left: 5px; }
 .rp-big { display: inline-flex; align-items: baseline; gap: 8px; }
 .rp-big b { font-family: var(--mono); font-size: 21px; font-weight: 600; color: var(--role); font-variant-numeric: tabular-nums; }
-.rp-kill { font-family: var(--mono); font-size: 12px; color: var(--role); opacity: 0.85; }
+.rp-kill { font-family: var(--mono); font-size: 12px; color: var(--role); opacity: 0.85; white-space: nowrap; }
+
+/* ---------- 원사이클 처치 = 컷 수치를 칩으로 (플랫) ---------- */
+.rp-kill.k-ult, .rp-kill.k-noult {
+  opacity: 1; padding: 2px 9px; border-radius: 999px; font-weight: 600;
+}
+/* 궁 포함 원킬 — 연한 역할색 칩 */
+.rp-kill.k-ult { background: var(--role-weak); color: var(--role); }
+/* 궁 없이 원킬 — 채운 역할색 칩 (더 우월) */
+.rp-kill.k-noult { background: var(--role); color: var(--bg); font-weight: 700; }
 
 .rp table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
 .rp th {

@@ -197,14 +197,19 @@ function ResultPanel({
   const kills = (sim.hp / sim.cyclePlusUlt).toFixed(2)
   const ult = sim.cyclePlusUlt - sim.cycle
   const gain = Math.round((sim.cyclePlusUlt / (noKit.cyclePlusUlt || 1) - 1) * 100)
+  // 원사이클 처치 등급: noult(궁 없이도 처치=최상) > ult(궁 포함 처치) > none
+  const killTier = sim.cycle >= sim.hp ? 'noult' : sim.cyclePlusUlt >= sim.hp ? 'ult' : 'none'
   const bigTip = `사이클 ${fmt(sim.cycle)} + 궁 ${fmt(ult)} = ${fmt(sim.cyclePlusUlt)}\n상대 평균 HP ${fmt(sim.hp)} → ${kills}번 처치`
+  const killTip = killTier === 'noult' ? '궁 없이 한 사이클에 처치 (최상)' : killTier === 'ult' ? '궁 포함 한 사이클에 처치' : undefined
   return (
     <div className={`rp ${tone}`}>
       <div className="rp-head">
         <span className="rp-title">{title} <em>{sub}</em></span>
         <span className="rp-big" title={bigTip}>
           <b>{fmt(sim.cyclePlusUlt)}</b>
-          <span className="rp-kill">{kills}컷</span>
+          <span className={killTier === 'none' ? 'rp-kill' : `rp-kill k-${killTier}`} title={killTip}>
+            {killTier === 'noult' && '✓ '}{kills}컷
+          </span>
         </span>
       </div>
       {stat && (
