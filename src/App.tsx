@@ -232,8 +232,8 @@ function ResultPanel({
         </tbody>
       </table>
       <div className="rp-sub">
-        <span>사이클 <b>{fmt(sim.cycle)}</b><em>궁 제외</em></span>
-        <span>사이클＋궁 <b>{fmt(sim.cyclePlusUlt)}</b><em>궁 포함</em></span>
+        <span>궁 제외 <b>{fmt(sim.cycle)}</b></span>
+        <span>궁 포함 <b>{fmt(sim.cyclePlusUlt)}</b></span>
         {sim.grab > 0 && <span>＋잡기 <b>{fmt(sim.cyclePlusGrab)}</b></span>}
         <span className="ke">킷 효과 <b className={gain >= 0 ? 'up' : 'down'}>{gain >= 0 ? '+' : ''}{gain}%</b></span>
       </div>
