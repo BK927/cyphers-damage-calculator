@@ -422,6 +422,7 @@ export default function App() {
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
   const [methodOpen, setMethodOpen] = useState(true)
+  const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
 
   // 캐릭터 모달 열림 동안 배경 스크롤 잠금
   useEffect(() => {
@@ -942,6 +943,18 @@ export default function App() {
         </section>
       )}
 
+      {/* 공격/방어 탭 */}
+      <div className="sim-tabs">
+        <button className={simView === 'attack' ? 'on atk' : ''} onClick={() => setSimView('attack')}>
+          <b>공격</b><span>딜 — 어떤 공격킷</span>
+        </button>
+        <button className={simView === 'defense' ? 'on def' : ''} onClick={() => setSimView('defense')}>
+          <b>방어</b><span>생존 — 어떤 방어킷</span>
+        </button>
+      </div>
+
+      {simView === 'attack' && (
+      <>
       {/* 공격킷 */}
       <SecHead title="공격킷 추천" sub={fieldMode ? '상대 유형별로 딜이 가장 잘 나오는 킷 — 클릭해 상세 비교' : '선택한 상대에게 딜이 가장 잘 나오는 킷'} />
       <section className="panel kits">
@@ -994,6 +1007,38 @@ export default function App() {
         </div>
       </section>
 
+      {/* 필드 구성 스택 바 — 입장률·목걸이·방어킷 분포로 분할 (수동 모드에선 상대 세팅 패널에 표시) */}
+      {fieldMode && shares && setting === 'auto' && (
+        <div className="field-bar" title="입장률 가중 · 목걸이/방어킷 착용 분포로 분할">
+          {([
+            ['dealer', shares.dealer, '딜러'],
+            ['armor', shares.tank * shares.armorInTank, '방탱'],
+            ['evade', shares.tank * shares.evadeInTank, '회탱'],
+          ] as const).map(([tone, frac, label]) => (
+            <span key={tone} className={`fb-seg ${tone}`} style={{ flexGrow: Math.max(frac, 0.0001) }} title={`${label} ${Math.round(frac * 100)}%`}>
+              <span className="fb-lbl">{frac >= 0.12 ? `${label} ${Math.round(frac * 100)}%` : `${Math.round(frac * 100)}%`}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 결과 · 공격 */}
+      <SecHead
+        title="예상 전투 결과"
+        sub={fieldMode
+          ? '내가 때릴 때 — 상대 유형별 한타 딜과 처치 컷 · 상대는 방어킷 복용 가정'
+          : '선택한 상대와 1:1 — 스킬별 데미지와 처치 컷'}
+      />
+      <section className={fieldMode ? 'results five' : 'results'}>
+        {sims.map((s, i) => (
+          <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat} />
+        ))}
+      </section>
+      </>
+      )}
+
+      {simView === 'defense' && (
+      <>
       {/* 방어킷 — 받는 피해 기준 생존 사이클 (필드 모드 전용) */}
       {fieldMode && defRank && (
         <>
@@ -1036,37 +1081,9 @@ export default function App() {
         </>
       )}
 
-      {/* 필드 구성 스택 바 — 입장률·목걸이·방어킷 분포로 분할 (수동 모드에선 상대 세팅 패널에 표시) */}
-      {fieldMode && shares && setting === 'auto' && (
-        <div className="field-bar" title="입장률 가중 · 목걸이/방어킷 착용 분포로 분할">
-          {([
-            ['dealer', shares.dealer, '딜러'],
-            ['armor', shares.tank * shares.armorInTank, '방탱'],
-            ['evade', shares.tank * shares.evadeInTank, '회탱'],
-          ] as const).map(([tone, frac, label]) => (
-            <span key={tone} className={`fb-seg ${tone}`} style={{ flexGrow: Math.max(frac, 0.0001) }} title={`${label} ${Math.round(frac * 100)}%`}>
-              <span className="fb-lbl">{frac >= 0.12 ? `${label} ${Math.round(frac * 100)}%` : `${Math.round(frac * 100)}%`}</span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* 결과 · 공격 */}
-      <SecHead
-        title="예상 전투 결과 · 공격"
-        sub={fieldMode
-          ? '내가 때릴 때 — 상대 유형별 한타 딜과 처치 컷 · 상대는 방어킷 복용 가정'
-          : '선택한 상대와 1:1 — 스킬별 데미지와 처치 컷'}
-      />
-      <section className={fieldMode ? 'results five' : 'results'}>
-        {sims.map((s, i) => (
-          <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat} />
-        ))}
-      </section>
-
       {/* 결과 · 방어 (피격) */}
       <SecHead
-        title="예상 피격 결과 · 방어"
+        title="예상 피격 결과"
         sub={fieldMode
           ? '상대가 나를 때릴 때 — 선택한 방어킷 기준 받는 피해와 버티는 컷 · 상대는 공격킷 복용 가정'
           : '상대가 나를 때릴 때 — 선택한 방어킷 기준 1:1 받는 피해'}
@@ -1076,6 +1093,8 @@ export default function App() {
           <DefensePanel key={i} {...p} />
         ))}
       </section>
+      </>
+      )}
 
       {/* 계산 과정: 통계 → 결과가 나오기까지 */}
       <section className="panel method">
