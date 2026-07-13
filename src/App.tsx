@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { characters } from './data/characters'
 import { iconNum } from './data/icons'
@@ -268,6 +268,14 @@ export default function App() {
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
   const [methodOpen, setMethodOpen] = useState(true)
+
+  // 캐릭터 모달 열림 동안 배경 스크롤 잠금
+  useEffect(() => {
+    if (!pickerOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [pickerOpen])
   const [oppSlug, setOppSlug] = useState('jekiel')
   const [oppGear, setOppGear] = useState<GearState | null>(null)
   const [oppKitIdx, setOppKitIdx] = useState(0)
@@ -512,12 +520,12 @@ export default function App() {
         <span className="date">넥슨 주간 통계 · {TIER_LABELS[tier]} 티어 · {metaScrapedAt} 수집</span>
       </header>
 
-      {/* 캐릭터 + 모드 (이름 클릭 → 선택 그리드 확장) */}
-      <section className={pickerOpen ? 'panel hero open' : 'panel hero'}>
+      {/* 캐릭터 + 모드 */}
+      <section className="panel hero">
         <div className="hero-bar">
           <button
             className={pickerOpen ? 'hero-id open' : 'hero-id'}
-            onClick={() => { setPickerOpen((o) => !o); setQ('') }}
+            onClick={() => { setQ(''); setPickerOpen(true) }}
             title="캐릭터 선택"
           >
             <img className="hero-face" src={iconUrl(slug)} alt="" onError={hideOnError} />
@@ -552,9 +560,13 @@ export default function App() {
           </div>
         </div>
 
-        {pickerOpen && (
-          <div className="hero-picker">
-            <div className="pick-bar">
+      </section>
+
+      {/* 캐릭터 선택 모달 (모바일=전체화면 / PC=중앙 다이얼로그) */}
+      {pickerOpen && (
+        <div className="pick-overlay" onClick={() => setPickerOpen(false)} role="dialog" aria-modal="true">
+          <div className="pick-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pick-modal-head">
               <span className="pick-ico"><i>⌕</i></span>
               <input
                 className="pick-search"
@@ -569,21 +581,24 @@ export default function App() {
                   if (e.key === 'Enter' && gridChars[0]) selectChar(gridChars[0].slug)
                 }}
               />
+              <button className="pick-close" onClick={() => setPickerOpen(false)} aria-label="닫기">✕</button>
             </div>
-            {!q && favs.length > 0 && <div className="pick-sec">★ 즐겨찾기</div>}
-            <div className="pick-grid">
-              {gridChars.map((c) => (
-                <button key={c.slug} className={c.slug === slug ? 'ctile on' : 'ctile'} onClick={() => selectChar(c.slug)} title={c.name}>
-                  <img src={iconUrl(c.slug)} alt="" loading="lazy" onError={hideOnError} />
-                  <span>{c.name}</span>
-                  {favs.includes(c.slug) && <i className="fav-dot" />}
-                </button>
-              ))}
-              {gridChars.length === 0 && <span className="pick-empty">검색 결과 없음</span>}
+            <div className="pick-modal-body">
+              {!q && favs.length > 0 && <div className="pick-sec">★ 즐겨찾기</div>}
+              <div className="pick-grid">
+                {gridChars.map((c) => (
+                  <button key={c.slug} className={c.slug === slug ? 'ctile on' : 'ctile'} onClick={() => selectChar(c.slug)} title={c.name}>
+                    <img src={iconUrl(c.slug)} alt="" loading="lazy" onError={hideOnError} />
+                    <span>{c.name}</span>
+                    {favs.includes(c.slug) && <i className="fav-dot" />}
+                  </button>
+                ))}
+                {gridChars.length === 0 && <span className="pick-empty">검색 결과 없음</span>}
+              </div>
             </div>
           </div>
-        )}
-      </section>
+        </div>
+      )}
 
       {/* 내 세팅 */}
       <SecHead
