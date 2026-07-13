@@ -86,6 +86,14 @@ function kitName(k: KitOption): string {
   if (crit) return '이펙트'
   return k.name
 }
+// 방어킷 표시 이름 — "배트 타즈"처럼 붙는 캐릭터별 접두사를 떼고 킷 패밀리(마지막 단어)만.
+// "방어"는 기본 방어킷(방어%만) → 명확히 표기.
+function defKitName(k: KitOption): string {
+  const n = k.name.trim()
+  if (n === '킷 없음') return '킷 없음'
+  if (n === '방어') return '방어(기본)'
+  return n.split(/\s+/).pop() || n
+}
 // 킷 착용률 뱃지 (필드 전체·입장률 가중) — NONE_KIT은 뱃지 없음
 function usageBadge(usage: Map<string, number>, k: KitOption) {
   if (k.name === '킷 없음') return null
@@ -728,7 +736,7 @@ export default function App() {
                   <span className="gp-slot">방어킷</span>
                   <select className="gp-item" value={oppKitIdx} onChange={(e) => setOppKitIdx(+e.target.value)}>
                     {oppKits.map((k, i) => (
-                      <option key={i} value={i}>{k.name === '킷 없음' ? '킷 없음' : `${k.name.trim()} (${kitStat(k)})`}</option>
+                      <option key={i} value={i}>{k.name === '킷 없음' ? '킷 없음' : `${defKitName(k)} (${kitStat(k)})`}</option>
                     ))}
                   </select>
                 </div>
@@ -814,7 +822,7 @@ export default function App() {
               const none = kit.name === '킷 없음'
               const gain = !none && defNoneTotal > 0 && Number.isFinite(total) ? Math.round((total / defNoneTotal - 1) * 100) : 0
               const surv = per.map((v, i) => `· ${FIELD_LABELS[i]} 공격을 ${Number.isFinite(v) ? v.toFixed(1) : '∞'}번 버팀`).join('\n')
-              const head = `${kitName(kit)} · ${kitStat(kit)}`
+              const head = `${defKitName(kit)} · ${kitStat(kit)}`
               const explain = '각 상대가 한 사이클+궁을 온전히 맞혀 나를 처치하는 데 필요한 횟수\n(예: 1.0 = 딱 한 번에 죽음, 2.0 = 두 번 버팀 · 높을수록 튼튼)'
               const tip = none
                 ? `${head}\n\n${explain}\n${surv}`
@@ -823,7 +831,7 @@ export default function App() {
                 <div key={sig} className="chip static" title={tip}>
                   {sig === defBestSig && <i>★</i>}
                   {kit.icon && <img src={itemIcon(kit.icon)} alt="" loading="lazy" onError={hideOnError} />}
-                  <b>{kitName(kit)}</b>
+                  <b>{defKitName(kit)}</b>
                   <span className="tri">
                     {per.map((v, i) => (
                       <span key={i} className={`tnum ${TONES[i]}`}>
