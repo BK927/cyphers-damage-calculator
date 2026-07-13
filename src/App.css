@@ -26,18 +26,14 @@
   background: var(--inset); border: 1px solid var(--line); border-radius: 12px; padding: 5px;
 }
 .sim-tabs button {
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  font: inherit; padding: 9px 6px; border: 1px solid transparent; border-radius: 9px;
+  font: inherit; font-family: var(--display); font-size: 14px; font-weight: 600;
+  padding: 9px 6px; border: 1px solid transparent; border-radius: 9px;
   background: none; color: var(--text-3); cursor: pointer; transition: 0.12s;
 }
 .sim-tabs button:hover { color: var(--text-2); }
-.sim-tabs button b { font-family: var(--display); font-size: 15px; font-weight: 600; }
-.sim-tabs button span { font-size: 10.5px; }
 .sim-tabs button.on { background: var(--panel); border-color: var(--line-2); color: var(--text); }
-.sim-tabs button.on.atk { border-color: var(--dealer); }
-.sim-tabs button.on.atk b { color: var(--dealer); }
-.sim-tabs button.on.def { border-color: var(--tank); }
-.sim-tabs button.on.def b { color: var(--tank); }
+.sim-tabs button.on.atk { border-color: var(--dealer); color: var(--dealer); }
+.sim-tabs button.on.def { border-color: var(--tank); color: var(--tank); }
 
 /* 섹션 헤더 (제목 + 서브타이틀) — 바로 아래 섹션과 묶여 보이게 */
 .sec-head { margin: 4px 2px -8px; }

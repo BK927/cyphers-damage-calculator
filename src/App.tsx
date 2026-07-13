@@ -946,10 +946,10 @@ export default function App() {
       {/* 공격/방어 탭 */}
       <div className="sim-tabs">
         <button className={simView === 'attack' ? 'on atk' : ''} onClick={() => setSimView('attack')}>
-          <b>공격</b><span>딜 — 어떤 공격킷</span>
+          공격
         </button>
         <button className={simView === 'defense' ? 'on def' : ''} onClick={() => setSimView('defense')}>
-          <b>방어</b><span>생존 — 어떤 방어킷</span>
+          방어
         </button>
       </div>
 
