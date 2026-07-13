@@ -157,6 +157,39 @@ itemPurchase[]: itemId[] (산 순서, 반복=레벨업)
 - **캐릭터별 픽률/승률 메타는 Neople API에 없음** — 넥슨 `/statistic/rank/entrance`가 유일.
 - Neople `itemId` ≠ 넥슨 `itemNo` — 교차 매핑은 이름 기준.
 
+### 3.4 히트맵/전적 백엔드 (record-cyphers.neople.co.kr) — **비계약 부가 소스** (2026-07-13 발견)
+
+넥슨 홈페이지 전적 상세의 "히트맵" 기능이 호출하는 **별도 도메인의 내부 백엔드**. 키 불필요, JSON. `api.neople.co.kr`(문서화된 계약 API)와 달리 **문서·레이트리밋·안정성 보장이 없음** → 예고 없이 깨질 수 있는 부가 소스로만 취급할 것.
+
+| 엔드포인트 | 반환 | 계약 API에도 있나 |
+|---|---|---|
+| `GET /api/maps` | 맵 6종 `{mapId, name}` (101리버포드 102메트로 103브리스톨 104스프링 105그랑플람 106리버포드앳던) | — |
+| `GET /api/characters` | 84명 `{characterId, characterName}` | ✅ (`/cy/characters`) |
+| `GET /api/players?nickname=` | 닉네임 검색 `{playerId, nickname, represent, grade}` | ✅ |
+| `GET /api/players/{id}` | 프로필 (티어·RP 등) | ✅ |
+| `GET /api/players/{id}/matches` | 매치 목록 (startDate/endDate 필수, 없으면 `CY001 SEARCH_TIME_ERROR`) | ✅ |
+| `GET /api/matches/{id}` | 매치 상세 — **`api.neople.co.kr`와 완전 동일 구조** (playInfo·items·itemPurchase 전부) | ✅ |
+| **`GET /api/matches/{id}/analytics/heatmap`** | **킬/데스 좌표** `rows[]: {x, y, count}` | ❌ **여기서만** |
+| **`GET /api/players/{id}/analytics/heatmap`** | 개인 킬/데스 좌표 (이쪽은 날짜 집계가 유효) | ❌ **여기서만** |
+
+**계약 API로 못 얻는 유일한 것 = 히트맵 좌표.** 나머지는 전부 계약 API에도 있으므로 그쪽을 우선 사용(공식 창구).
+
+**히트맵 쿼리 파라미터:**
+```
+mapId=106                 // 맵. 매치 상세의 map.mapId 사용
+pointId=kill              // kill(가한 처치) | die(사망). ⚠️ death/damage 등은 null. UI "데스"=die
+characterId=              // 비우면 전체, 캐릭터 해시 = 해당 캐릭터만
+killTargetTypeCode=       // 비우면 전체. 101플레이어 102플레이어(AI) 103소환물 201HQ 202타워 203수호타워 301수호자 302센티넬 303철거반 304트루퍼
+startDate=YYYY-MM-DD HH:mm&endDate=...  // ⚠️ 매치 스코프에선 무시됨(그 매치 실제 이벤트). 개인 스코프에서만 유효
+gameTypeId=rating         // rating | normal
+abs=false                // true/false 둘 다 좌표 반환(스케일 차이 미미)
+```
+
+- **매치 스코프 = 그 판의 실제 킬/데스 이벤트 좌표** (날짜 무시). 검증: 30일↔1시간 요청이 동일(450좌표/537킬), 클레어 필터=78좌표/85킬 = 클레어 실제 전적(킬3+센티넬18+철거반60+트루퍼1≈82) 일치.
+- **좌표계**: 맵 이미지 `record-cyphers.neople.co.kr/images/map/{mapId}.png` 픽셀 기준. `count`=그 지점 이벤트 수.
+- **없는 것**: `/analytics/{timeline,graph,coin,damage,gold}` 전부 404. 좌표 외 파생 데이터·타임스탬프 없음.
+- **용도**: 데미지/킷 모델과는 무관(위치 데이터). 캐릭터 킬/데스 핫스팟(라인전형·로밍형·오브젝트형) 같은 별개 확장에만.
+
 ---
 
 ## 4. 데이터 파이프라인 (scripts/ → src/data/*.json)
