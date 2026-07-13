@@ -97,8 +97,65 @@
 ### 3.3 Neople 공식 API (api.neople.co.kr/cy) — **API 키 필요** (무료, `.env`의 `NEOPLE_API_KEY`)
 
 - **절대 클라이언트/번들에 넣지 말 것** (VITE_ 접두사 금지). 빌드타임 스크립트에서만 사용.
-- 체인: `/ranking/ratingpoint`(랭커 playerId) → `/players/{id}/matches?gameTypeId=rating`(매치 목록) → `/matches/{matchId}`(상세).
-- **매치 상세 `players[].itemPurchase`** = **산 순서대로의 itemId 배열**(반복 = 레벨업). 이게 빌드 순서의 원천. `players[].items`로 itemId→slotName 매핑.
+
+#### 3.3.1 엔드포인트 전체 목록 (2026-07-13 라이브 실측)
+
+| 엔드포인트 | 용도 | 반환 (실측) | 프로젝트 사용 |
+|---|---|---|---|
+| `GET /characters` | 캐릭터 목록 | `rows[84]: {characterId(해시32), characterName}` | ❌ (넥슨 numId 사용중) |
+| `GET /ranking/ratingpoint` | 전체 랭킹 | `rows[]: {rank, playerId, nickname, grade, ratingPoint, clanName, represent{characterId,characterName}}` | ✅ 랭커 수집 |
+| `GET /ranking/characters/{characterId}/{type}` | 캐릭터별 랭킹 | type=`winCount·winRate·killCount·assistCount·exp`. `{rank, playerId, nickname, winCount, loseCount, winRate, …}` | ❌ |
+| `GET /ranking/tsj/{melee\|ranged}` | 투신전(1:1) 랭킹 | `{rank, playerId, ratingPoint, winCount, loseCount, winningStreak}` | ❌ |
+| `GET /players?nickname=&wordType=&limit=` | 닉네임 검색 | `{playerId, nickname, grade, clanName}` | ❌ |
+| `GET /players/{playerId}` | 플레이어 프로필 | `{tierName(ACE…), ratingPoint, maxRatingPoint, represent, tierTest, records[{gameTypeId, winCount, loseCount, stopCount}]}` | ❌ |
+| `GET /players/{id}/matches` | 매치 목록 | `matches:{date,gameTypeId,next,rows[{matchId,playTime,result,characterName,killCount,…}]}` | ✅ 매치 id 수집 |
+| `GET /matches/{matchId}` | 매치 상세 | `{date, gameTypeId, map{mapId,name}, teams[{result,players[]}], players[]}` (아래 상세) | ⚠️ itemPurchase만 |
+| `GET /battleitems?itemName=&wordType=&characterId=&slotCode=&rarityCode=&seasonCode=&limit=` | 아이템 검색 (itemName 필수) | `rows[]: {itemId, itemName, characterId, characterName, slotCode, slotName, rarityCode, seasonCode}` | ❌ |
+| `GET /battleitems/{itemId}` | 아이템 상세 | `{…, explain, explainDetail(레벨별 코인·스탯·쿨타임·지속시간)}` | ❌ |
+| `GET /multi/battleitems?itemIds=` | 아이템 벌크 상세 (콤마구분) | `rows[]: 위와 동일 (explainDetail 포함)` | ❌ |
+
+#### 3.3.2 매치 상세 `players[]` 전체 필드
+
+현재 `itemPurchase`(빌드순서)와 `items`(슬롯매핑)만 사용. 나머지는 미사용:
+
+```
+playInfo: {
+  characterId, characterName, level, playTime, random, partyUserCount, partyId,
+  killCount, deathCount, assistCount,          // KDA
+  attackPoint,                                 // 가한 피해 포인트
+  damagePoint,                                 // ⭐ 받은 총 피해 — 실측 검증용
+  battlePoint, sightPoint, towerAttackPoint,   // 전투·시야·공성
+  backAttackCount, comboCount, spellCount,     // 백어택·콤보·주문
+  healAmount,                                  // 힐량
+  sentinelKillCount, demolisherKillCount,       // 오브젝트
+  trooperKillCount, guardianKillCount, guardTowerKillCount,
+  getCoin, spendCoin, spendConsumablesCoin,     // 코인 경제 (킷 소비)
+  responseTime, minLifeTime, maxLifeTime,      // 생존시간
+  multiKillCount: {double, triple, quadruple, genocide},
+  aceInfo
+}
+items[]: {itemId, itemName, slotCode, slotName, rarityCode, rarityName, equipSlotCode, equipSlotName, upgrade}
+itemPurchase[]: itemId[] (산 순서, 반복=레벨업)
+```
+
+#### 3.3.3 슬롯코드 전체 매핑 (매치 items 실측 확정)
+
+| 장비 | 킷(소모품) | 장신구 |
+|---|---|---|
+| `101` 손(공격) | `301` 회복킷 | `201` 장신구ALL |
+| `102` 머리(치명) | `302` 가속킷 | `202` 장신구1 |
+| `103` 가슴(체력) | `303` 공격킷 | `203` 장신구2 |
+| `104` 허리(회피) | `304` 방어킷 | `204` 장신구3 |
+| `105` 다리(방어) | `305` 특수킷 | `205` 장신구4 |
+| `106` 발(이동) | | |
+| `107` 목 | | 희귀도: `101`커먼 `102`언커먼 `103`레어 `104`유니크 |
+
+#### 3.3.4 한계
+
+- **`/characters`는 id·이름만 반환** — 커뮤니티 타입의 `CypherDetail{ability, skill}`은 실제 미구현. 스킬 계수·기본 스탯은 넥슨 홈페이지 스크래핑이 유일.
+- **`/battleitems` 검색은 itemName 필수** — 전체 열거 불가. 매치 하베스트로 itemId 수집 후 상세/멀티 해석.
+- **캐릭터별 픽률/승률 메타는 Neople API에 없음** — 넥슨 `/statistic/rank/entrance`가 유일.
+- Neople `itemId` ≠ 넥슨 `itemNo` — 교차 매핑은 이름 기준.
 
 ---
 
@@ -109,7 +166,7 @@
 | `scrape-skills.mjs` | ❌ | `skills.json` | 84명 스킬(이름/쿨타임/조작키/grab(F)/대인계수/hits(고정,퍼센트,다운)/modes(1st,2nd)) |
 | `scrape-meta.mjs` | ❌ | `meta.json` | 84명: 입장률·역할·풀빌드 스탯·**슬롯별 스탯(slots)**·**레벨별 스탯(slotLevels)**·공격킷/방어킷 착용분포 |
 | `scrape-buildorder.mjs` | ✅ Neople | `buildorder.json` | 랭커 매치 itemPurchase 집계 → 캐릭터별 **(슬롯,레벨) 평균 구매 순서**. 800랭커≈5천매치, 82/84 커버 |
-| `characters.json` | — | (수동/최초 수집) | slug·이름·기본 스탯 |
+| `scrape-characters.mjs` | ❌ | `characters.json` | 84명 기본 능력치(공격/치명/체력/회피/방어/이동) — `/game/character/info/{slug}` 파싱 |
 | `icons.ts` | — | (고정 매핑) | slug→아이콘 번호 |
 
 실행: `node scripts/scrape-skills.mjs`, `node scripts/scrape-meta.mjs`, `node --env-file=.env scripts/scrape-buildorder.mjs`.
