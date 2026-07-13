@@ -627,17 +627,15 @@ export interface UpgradeStep {
  * L강 구매 필요 캐릭 레벨 = 10×(L−1), 캐릭 레벨 = 강화 누적(부위별 LEVEL_GAIN).
  * 상대(필드/타깃)는 풀빌드 기준(refStage)으로 루프 밖에서 1회만 구성해 재사용.
  */
-export function optimizeUpgradeOrder(
+// 강화 목표값 함수 — defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜.
+// 상대(필드/타깃)는 풀빌드 기준으로 1회만 구성해 클로저로 재사용(value가 필드 전체를 순회하므로).
+function upgradeValueFn(
   slug: string,
   kind: 'attack' | 'defense',
   kit: KitOption | null,
   tier: Tier,
-  mode: 'greedy' | 'efficiency',
-): UpgradeStep[] {
-  const slots = gearSlotsOf(slug, tier)
-  const refStage = maxStageOf(slug, tier) // 상대는 풀빌드 기준 고정
-
-  // 상대는 루프 밖 1회 구성 (value가 필드 전체를 순회하므로 필수)
+): (gear: GearState) => number {
+  const refStage = maxStageOf(slug, tier)
   const field: IncomingAttacker[] = kind === 'defense'
     ? [
         ...incomingField('dealer', refStage, tier, slug),
@@ -652,15 +650,24 @@ export function optimizeUpgradeOrder(
         subFieldTarget('tankEvade', refStage, tier, slug),
       )
     : null
-
-  // 목표값: defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜
-  const value = (gear: GearState): number => {
+  return (gear: GearState): number => {
     if (kind === 'defense') {
       const dmg = incomingSim(field, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
       return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
     }
     return simulate(slug, attackerFrom(slug, gear, kit, tier), target!, '1st').cyclePlusUlt
   }
+}
+
+export function optimizeUpgradeOrder(
+  slug: string,
+  kind: 'attack' | 'defense',
+  kit: KitOption | null,
+  tier: Tier,
+  mode: 'greedy' | 'efficiency',
+): UpgradeStep[] {
+  const slots = gearSlotsOf(slug, tier)
+  const value = upgradeValueFn(slug, kind, kit, tier)
 
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
@@ -689,6 +696,33 @@ export function optimizeUpgradeOrder(
     cumCoin += best.coin
     steps.push({ slot: best.slot, level: best.level, coin: best.coin, cumCoin, value: best.val, gain: best.gain })
     base = best.val
+  }
+  return steps
+}
+
+/** 주어진 강화 순서(랭커 빌드 등)를 그대로 재생해 각 시점 값 곡선을 계산 (비교용). */
+export function evalUpgradePath(
+  slug: string,
+  kind: 'attack' | 'defense',
+  kit: KitOption | null,
+  tier: Tier,
+  path: { slot: string; level: number }[],
+): UpgradeStep[] {
+  const slots = gearSlotsOf(slug, tier)
+  const value = upgradeValueFn(slug, kind, kit, tier)
+  const gear: GearState = {}
+  const steps: UpgradeStep[] = []
+  let cumCoin = 0
+  let base = value(gear)
+  for (const p of path) {
+    const item = slots[p.slot]?.[0]
+    if (!item || p.level < 1 || p.level > item.levels.length) continue // 장비 외(소모품 등) 스킵
+    gear[p.slot] = { item: 0, level: p.level }
+    const coin = item.levels[p.level - 1].coin
+    cumCoin += coin
+    const val = value(gear)
+    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base })
+    base = val
   }
   return steps
 }

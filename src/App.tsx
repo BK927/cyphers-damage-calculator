@@ -26,6 +26,7 @@ import {
   hpFrom,
   incomingField,
   incomingSim,
+  evalUpgradePath,
   kitUsage,
   maxStageOf,
   mergeFields,
@@ -416,6 +417,63 @@ function SecHead({ title, sub }: { title: string; sub: string }) {
   )
 }
 
+// 강화 순서 값 포맷 — defense=생존 컷, attack=한타 딜
+const upoVal = (v: number, kind: 'attack' | 'defense') => (kind === 'defense' ? `${v.toFixed(1)}컷` : fmt(v))
+
+// 코인 가중 평균값(=값 곡선의 면적 ÷ 총코인) — 순서가 게임 전체에 걸쳐 얼마나 앞섰는지.
+// 종점(완성)은 세 순서 모두 같으므로, 경로(면적)만이 순서의 우열을 가른다.
+function upoAvg(steps: UpgradeStep[]): number {
+  if (!steps.length) return 0
+  const base = steps[0].value - steps[0].gain
+  const pts = [{ x: 0, y: base }, ...steps.map((s) => ({ x: s.cumCoin, y: s.value }))]
+  let area = 0
+  for (let i = 0; i < pts.length - 1; i++) area += pts[i].y * (pts[i + 1].x - pts[i].x)
+  return area / (pts[pts.length - 1].x || 1)
+}
+
+// 강화 순서 값 곡선 비교 (Y=값, X=누적 코인 · 세 순서를 선으로)
+function UpgradeChart({ curves, kind }: {
+  curves: { tone: string; steps: UpgradeStep[] }[]
+  kind: 'attack' | 'defense'
+}) {
+  const W = 600, H = 168, padL = 42, padR = 10, padT = 12, padB = 24
+  const series = curves.map((c) => ({
+    tone: c.tone,
+    // 시작점(빈 장비 값 = 1수 value − gain)을 앞에 붙여 0코인부터 그림
+    pts: c.steps.length
+      ? [{ x: 0, y: c.steps[0].value - c.steps[0].gain }, ...c.steps.map((s) => ({ x: s.cumCoin, y: s.value }))]
+      : [],
+  }))
+  const all = series.flatMap((s) => s.pts)
+  if (!all.length) return null
+  const maxX = Math.max(...all.map((p) => p.x)) || 1
+  const ys = all.map((p) => p.y)
+  const minY = Math.min(...ys), maxY = Math.max(...ys) || 1
+  const spanY = maxY - minY || 1
+  const sx = (x: number) => padL + (x / maxX) * (W - padL - padR)
+  const sy = (y: number) => padT + (1 - (y - minY) / spanY) * (H - padT - padB)
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="upo-chart" role="img" aria-label="강화 순서 값 곡선">
+      {[minY, (minY + maxY) / 2, maxY].map((t, i) => (
+        <g key={i}>
+          <line x1={padL} y1={sy(t)} x2={W - padR} y2={sy(t)} className="upo-grid" />
+          <text x={padL - 6} y={sy(t) + 3} className="upo-ytick" textAnchor="end">{upoVal(t, kind)}</text>
+        </g>
+      ))}
+      {[0, maxX / 2, maxX].map((t, i, a) => (
+        <text key={i} x={sx(t)} y={H - 7} className="upo-xtick"
+          textAnchor={i === 0 ? 'start' : i === a.length - 1 ? 'end' : 'middle'}>
+          {Math.round(t / 1000)}k
+        </text>
+      ))}
+      {series.map((s) => s.pts.length > 1 && (
+        <polyline key={s.tone} className={`upo-line ${s.tone}`}
+          points={s.pts.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')} />
+      ))}
+    </svg>
+  )
+}
+
 /* ---------- 앱 ---------- */
 export default function App() {
   const [slug, setSlug] = useState('deimus')
@@ -746,10 +804,11 @@ export default function App() {
   const upoKit = simView === 'attack' ? kitRank[0]?.kit ?? null : selectedDefKit
   const upgradeOrders = useMemo(() => {
     if (setting !== 'auto') return null
+    const rankerPath = (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level }))
     return {
       greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy'),
       efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency'),
-      ranker: (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level })),
+      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath),
     }
   }, [setting, slug, simView, upoKit, tier])
 
@@ -885,26 +944,38 @@ export default function App() {
           <section className="panel upo">
             <div className="upo-note">
               {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
-              <span className="upo-hint">탐욕 = 한 방 큰 것 먼저 · 효율 = 코인 대비 이득 먼저</span>
+              <span className="upo-hint">Y = {simView === 'attack' ? '한타 딜' : '생존 컷'} · X = 누적 코인</span>
             </div>
-            {([
-              ['각 시점 최선 (탐욕)', 'greedy', upgradeOrders.greedy],
-              ['전 구간 최적 (효율)', 'eff', upgradeOrders.efficiency],
-              ['실제 랭커 빌드', 'rank', upgradeOrders.ranker],
-            ] as [string, string, { slot: string; level: number }[] | UpgradeStep[]][]).map(([label, tone, steps]) => (
-              <div key={tone} className="upo-row">
-                <span className={`upo-lbl ${tone}`}>{label}</span>
-                <div className="upo-seq">
-                  {steps.length === 0 && <span className="upo-empty">데이터 없음</span>}
-                  {steps.slice(0, 16).map((s, i) => (
-                    <span key={i} className={`upo-chip ${UPO_TONE[s.slot] ?? ''}`} title={s.slot}>
-                      {UPO_SHORT[s.slot] ?? s.slot}<b>{s.level}</b>
-                    </span>
-                  ))}
-                  {steps.length > 16 && <span className="upo-more">…</span>}
-                </div>
+            <UpgradeChart kind={upoKind} curves={[
+              { tone: 'eff', steps: upgradeOrders.efficiency },
+              { tone: 'greedy', steps: upgradeOrders.greedy },
+              { tone: 'rank', steps: upgradeOrders.ranker },
+            ]} />
+            <div className="upo-legend">
+              {([
+                ['효율', 'eff', upgradeOrders.efficiency],
+                ['탐욕', 'greedy', upgradeOrders.greedy],
+                ['랭커', 'rank', upgradeOrders.ranker],
+              ] as [string, string, UpgradeStep[]][]).map(([label, tone, steps]) => (
+                <span key={tone} className={`upo-leg ${tone}`}>
+                  {label} <span className="upo-leg-avg">평균 <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
+                </span>
+              ))}
+              <span className="upo-leg-note">완성 값은 셋 다 동일 · 경로(면적) 평균으로 비교</span>
+            </div>
+            <div className="upo-rec">
+              <span className="upo-rec-lbl">추천 순서<em>효율</em></span>
+              <div className="upo-seq">
+                {upgradeOrders.efficiency.length === 0 && <span className="upo-empty">데이터 없음</span>}
+                {upgradeOrders.efficiency.slice(0, 14).map((s, i) => (
+                  <span key={i} className={`upo-chip ${UPO_TONE[s.slot] ?? ''}`}
+                    title={`${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind)}`}>
+                    <em>{i + 1}</em>{UPO_SHORT[s.slot] ?? s.slot}<b>{s.level}</b>
+                  </span>
+                ))}
+                {upgradeOrders.efficiency.length > 14 && <span className="upo-more">…</span>}
               </div>
-            ))}
+            </div>
           </section>
         </>
       )}
