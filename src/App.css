@@ -34,9 +34,9 @@
   font-size: 20px; letter-spacing: -0.4px; font-weight: 700;
   display: flex; align-items: center; gap: 10px;
 }
-.topbar h1::before {
-  content: ''; width: 5px; height: 19px; border-radius: 2px;
-  background: var(--accent); box-shadow: 0 0 12px var(--accent);
+.topbar h1 .logo {
+  width: 26px; height: 26px; flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(139, 123, 255, 0.45));
 }
 .date {
   font-family: var(--mono); font-size: 10.5px; color: var(--text-2);

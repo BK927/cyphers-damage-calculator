@@ -516,7 +516,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <h1>사이퍼즈 킷 시뮬레이터</h1>
+        <h1><img className="logo" src={`${import.meta.env.BASE_URL}icon.png`} alt="" width="26" height="26" />사이퍼즈 킷 시뮬레이터</h1>
         <span className="date">넥슨 주간 통계 · {TIER_LABELS[tier]} 티어 · {metaScrapedAt} 수집</span>
       </header>
 
