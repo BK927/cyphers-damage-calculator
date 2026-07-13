@@ -19,7 +19,6 @@ import {
   attackerFrom,
   autoGear,
   defenderFrom,
-  expectedAtkKit,
   fullGear,
   gearSlotsOf,
   getSkills,
@@ -544,9 +543,25 @@ export default function App() {
     const st = setting === 'auto' ? stageEff : gearLevelCount(gearEff)
     if (setting === 'manual' && oppType === 'single') {
       const og = oppGear ?? fullGear(oppSlug, tier)
-      const atk = attackerFrom(oppSlug, og, expectedAtkKit(tierView(oppSlug, tier).attackKits), tier, true)
+      const atkBase = attackerFrom(oppSlug, og, null, tier, true) // 킷 없는 기준 → 공격킷별로 파생
+      const aks = tierView(oppSlug, tier).attackKits ?? []
+      const akTotal = aks.reduce((s, k) => s + (k.pct ?? 0), 0) || 1
       const skills = getSkills(oppSlug, '1st').filter((s) => s.cls !== 'grab')
-      return { mode: 'single' as const, single: [{ w: 1, atk, skills, slug: oppSlug }] as IncomingAttacker[] }
+      // 상대 공격킷 착용 분포별 공격자 (킷 없으면 기준 1개, Σw=1)
+      const single: IncomingAttacker[] = aks.length
+        ? aks.map((k) => ({
+            w: (k.pct ?? 0) / akTotal,
+            atk: {
+              ...atkBase,
+              attack: atkBase.attack + (k.attack ?? 0),
+              crit: atkBase.crit + (k.crit ?? 0),
+              critDamage: atkBase.critDamage + (k.critDamage ?? 0) / 100,
+              penetration: atkBase.penetration + (k.penetration ?? 0),
+            },
+            skills, slug: oppSlug,
+          }))
+        : [{ w: 1, atk: atkBase, skills, slug: oppSlug }]
+      return { mode: 'single' as const, single }
     }
     const dealer = incomingField('dealer', st, tier, slug)
     const tank = [...incomingField('tankArmor', st, tier, slug), ...incomingField('tankEvade', st, tier, slug)]
@@ -560,7 +575,7 @@ export default function App() {
     const noDef = defenderFrom(slug, gearEff, NONE_KIT, tier)
     const noHp = hpFrom(slug, gearEff, NONE_KIT, tier)
     const nChars = (atks: IncomingAttacker[]) => new Set(atks.map((a) => a.slug)).size
-    const defNote = '각 상대: 부위별 착용률(주간 통계)로 가중한 기대 세팅을 나와 같은 게임 시점까지 착용\n공격킷은 착용 분포대로 복용한 것으로 가정 (한타 맞교환)'
+    const defNote = '각 상대: 부위별 착용률(주간 통계)로 가중한 기대 세팅을 나와 같은 게임 시점까지 착용\n공격킷은 착용 분포대로 나눠 각 조합을 개별 상대로 계산 (한타 맞교환)'
     const mk = (title: string, sub: string, tone: Tone, atks: IncomingAttacker[], line?: string): DefPanelData => ({
       title, sub, tone, myHp, noHp,
       res: incomingSim(atks, myDef),
@@ -636,7 +651,7 @@ export default function App() {
     const tot = dW + aW + eW || 1
     const tankW = aW + eW || 1
     const pctS = (x: number) => `${Math.round(x * 100)}%`
-    const settingNote = '각 상대의 세팅: 부위별 착용률(이 티어 주간 통계)로 가중한 기대 세팅을\n랭커 구매 순서에 따라 나와 같은 게임 시점까지 착용한 상태\n방어킷은 착용 분포대로 복용 가정'
+    const settingNote = '각 상대의 세팅: 부위별 착용률(이 티어 주간 통계)로 가중한 기대 세팅을\n랭커 구매 순서에 따라 나와 같은 게임 시점까지 착용한 상태\n방어킷은 착용 분포대로 나눠 개별 반영'
     const splitNote = '각 캐릭터는 목걸이 착용 분포(공격형:방어형)대로 딜러/탱커에 비율로 나눠 반영\n→ 한 캐릭터가 딜러와 탱커 양쪽에 걸칠 수 있음'
     return [
       {
@@ -1120,7 +1135,7 @@ export default function App() {
               <div className="m-step">
                 <em>2</em>
                 <b>상대는 뭘 입었나</b>
-                <p>부위마다 이번 주 <u>{TIER_LABELS[tier]} 티어</u>에서 실제 착용된 비율 그대로 섞은 <u>기대 세팅</u>을 입은 것으로 봅니다. 1위 아이템만 고르는 게 아니라 착용 분포 전체를 반영합니다. 장비뿐 아니라 <u>방어킷·공격킷</u>도 착용 분포대로 섞어 반영합니다(공격 시 상대 방어킷, 피격 시 상대 공격킷).</p>
+                <p>부위마다 이번 주 <u>{TIER_LABELS[tier]} 티어</u>에서 실제 착용된 비율 그대로 섞은 <u>기대 세팅</u>을 입은 것으로 봅니다. 1위 아이템만 고르는 게 아니라 착용 분포 전체를 반영합니다. 장비는 착용률로 가중한 기대 세팅이지만, <u>방어킷·공격킷</u>은 착용 분포대로 나눠 조합마다 따로 계산합니다(공격 시 상대 방어킷, 피격 시 상대 공격킷).</p>
                 <p className="num">
                   예) {char.name} 손 슬롯:<br />
                   {(() => {

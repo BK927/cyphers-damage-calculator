@@ -291,41 +291,6 @@ export function dealerRatio(slug: string, tier: Tier = '0'): number {
  * 서브필드 타깃 — 입장률 가중, 각 상대도 같은 진행도의 자동 세팅.
  * 탱커는 방어킷 착용 분포로 가중을 나눔(방탱/회탱). 두 서브필드 합 = 원래 탱커 필드.
  */
-/** 딜러용 기대 방어킷 — 착용 분포 전체를 가중 평균한 합성 킷 (방어%는 선형 근사) */
-function expectedDefKit(kits: KitOption[]): KitOption | null {
-  if (!kits.length) return null
-  const totalPct = kits.reduce((s, k) => s + (k.pct ?? 0), 0) || 1
-  const mix: KitOption = {
-    name: '착용 분포 평균', pct: 1,
-    attack: 0, crit: 0, critDamage: 0, evade: 0, hp: 0, defenseReduction: 0,
-  }
-  for (const k of kits) {
-    const w = (k.pct ?? 0) / totalPct
-    mix.evade += w * (k.evade ?? 0)
-    mix.hp += w * (k.hp ?? 0)
-    mix.defenseReduction += w * (k.defenseReduction ?? 0)
-  }
-  return mix
-}
-
-/** 방어킷 추천용 기대 공격킷 — 착용 분포 전체를 가중 평균한 합성 킷 (공격축 선형 근사) */
-export function expectedAtkKit(kits: KitOption[]): KitOption | null {
-  if (!kits.length) return null
-  const totalPct = kits.reduce((s, k) => s + (k.pct ?? 0), 0) || 1
-  const mix: KitOption = {
-    name: '착용 분포 평균', pct: 1,
-    attack: 0, crit: 0, critDamage: 0, evade: 0, hp: 0, penetration: 0, defenseReduction: 0,
-  }
-  for (const k of kits) {
-    const w = (k.pct ?? 0) / totalPct
-    mix.attack += w * (k.attack ?? 0)
-    mix.crit += w * (k.crit ?? 0)
-    mix.critDamage += w * (k.critDamage ?? 0)
-    mix.penetration = (mix.penetration ?? 0) + w * (k.penetration ?? 0)
-  }
-  return mix
-}
-
 export function subFieldTarget(kind: FieldKind, stage: number, tier: Tier = '0', excludeSlug?: string): Target {
   const items: FieldItem[] = []
   for (const c of characters) {
@@ -334,10 +299,19 @@ export function subFieldTarget(kind: FieldKind, stage: number, tier: Tier = '0',
     const dr = dealerRatio(c.slug, tier)
     const gear = autoGear(c.slug, stage, tier)
     if (kind === 'dealer') {
-      const w = m.pickRate * dr
-      if (w <= 0) continue
-      const kit = expectedDefKit(m.defenseKits ?? [])
-      items.push({ w, def: defenderFrom(c.slug, gear, kit, tier, { neck: 'attack' }), hp: hpFrom(c.slug, gear, kit, tier, { neck: 'attack' }), slug: c.slug, kitName: kit?.name })
+      const base = m.pickRate * dr
+      if (base <= 0) continue
+      const dks = m.defenseKits?.length ? m.defenseKits : []
+      if (!dks.length) {
+        items.push({ w: base, def: defenderFrom(c.slug, gear, null, tier, { neck: 'attack' }), hp: hpFrom(c.slug, gear, null, tier, { neck: 'attack' }), slug: c.slug })
+        continue
+      }
+      // 방어킷 착용 분포대로 각 조합을 개별 상대로 분해 (Σw 보존)
+      const totalPct = dks.reduce((s, k) => s + (k.pct ?? 0), 0) || 1
+      for (const kit of dks) {
+        const w = base * ((kit.pct ?? 0) / totalPct)
+        if (w > 0) items.push({ w, def: defenderFrom(c.slug, gear, kit, tier, { neck: 'attack' }), hp: hpFrom(c.slug, gear, kit, tier, { neck: 'attack' }), slug: c.slug, kitName: kit.name })
+      }
       continue
     }
     const tankBase = m.pickRate * (1 - dr)
@@ -504,9 +478,28 @@ export function incomingField(kind: FieldKind, stage: number, tier: Tier = '0', 
     const gear = autoGear(c.slug, stage, tier)
     // 딜러 공격자=공격형 목걸이 기대값, 탱커 공격자=방어형 목걸이
     const neck: NeckFilter = kind === 'dealer' ? 'attack' : 'defense'
-    const atk = attackerFrom(c.slug, gear, expectedAtkKit(m.attackKits ?? []), tier, { neck })
+    const atkBase = attackerFrom(c.slug, gear, null, tier, { neck }) // 킷 없는 기준 → 공격킷별로 파생
+    const aks = m.attackKits?.length ? m.attackKits : []
+    const akTotal = aks.reduce((s, k) => s + (k.pct ?? 0), 0) || 1
+    // 공격킷 착용 분포별 공격자 [가중배수, 공격자] (킷 없으면 기준 1개, Σ배수=1)
+    const atkVariants: [number, Attacker][] = aks.length
+      ? aks.map((k) => [(k.pct ?? 0) / akTotal, {
+          ...atkBase,
+          attack: atkBase.attack + (k.attack ?? 0),
+          crit: atkBase.crit + (k.crit ?? 0),
+          critDamage: atkBase.critDamage + (k.critDamage ?? 0) / 100,
+          penetration: atkBase.penetration + (k.penetration ?? 0),
+        }])
+      : [[1, atkBase]]
     const skills = getSkills(c.slug, '1st').filter((s) => s.cls !== 'grab') // 잡기 제외 → 사이클+궁
-    const push = (w: number) => { if (w > 0) out.push({ w, atk, skills, slug: c.slug }) }
+    // 그룹 가중에 각 공격킷 비율을 곱해 분해 push
+    const push = (base: number) => {
+      if (base <= 0) return
+      for (const [akShare, atk] of atkVariants) {
+        const w = base * akShare
+        if (w > 0) out.push({ w, atk, skills, slug: c.slug })
+      }
+    }
     if (kind === 'dealer') { push(m.pickRate * dr); continue }
     const tankBase = m.pickRate * (1 - dr)
     if (tankBase <= 0) continue
@@ -536,7 +529,7 @@ export interface IncomingResult {
 export function incomingSim(attackers: IncomingAttacker[], myDef: Defender): IncomingResult {
   const totalW = attackers.reduce((s, a) => s + a.w, 0) || 1
   let cE = 0, cN = 0, cX = 0, uE = 0, uN = 0, uX = 0
-  const byChar = new Map<string, number>() // slug → 최대 개인 사이클+궁(기대)
+  const byChar = new Map<string, { sw: number; swd: number }>() // slug → 가중합(개인 사이클+궁 기대)
   for (const a of attackers) {
     let cyE = 0, cyN = 0, cyX = 0, ulE = 0, ulN = 0, ulX = 0
     for (const { skill, cls } of a.skills) {
@@ -550,12 +543,14 @@ export function incomingSim(attackers: IncomingAttacker[], myDef: Defender): Inc
     cE += a.w * cyE; cN += a.w * cyN; cX += a.w * cyX
     uE += a.w * (cyE + ulE); uN += a.w * (cyN + ulN); uX += a.w * (cyX + ulX)
     if (a.slug) {
-      const indiv = cyE + ulE
-      if (indiv > (byChar.get(a.slug) ?? -1)) byChar.set(a.slug, indiv)
+      const indiv = cyE + ulE // 킷별로 분해돼 slug당 여러 항목 → 가중 평균으로 기대 위협 유지
+      const e = byChar.get(a.slug) ?? { sw: 0, swd: 0 }
+      e.sw += a.w; e.swd += a.w * indiv
+      byChar.set(a.slug, e)
     }
   }
   const top5 = [...byChar.entries()]
-    .map(([slug, dmg]) => ({ slug, dmg }))
+    .map(([slug, v]) => ({ slug, dmg: v.sw > 0 ? v.swd / v.sw : 0 }))
     .sort((a, b) => b.dmg - a.dmg)
     .slice(0, 5)
   return {
