@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://bk927.github.io/cyphers-damage-calculator/sitemap.xml
