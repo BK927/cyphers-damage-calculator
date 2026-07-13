@@ -241,6 +241,16 @@ function ResultPanel({
   )
 }
 
+/* ---------- 섹션 헤더 (제목 + 서브타이틀) ---------- */
+function SecHead({ title, sub }: { title: string; sub: string }) {
+  return (
+    <div className="sec-head">
+      <h2>{title}</h2>
+      <p>{sub}</p>
+    </div>
+  )
+}
+
 /* ---------- 앱 ---------- */
 export default function App() {
   const [slug, setSlug] = useState('deimus')
@@ -575,6 +585,13 @@ export default function App() {
         )}
       </section>
 
+      {/* 내 세팅 */}
+      <SecHead
+        title="내 세팅"
+        sub={setting === 'auto'
+          ? '대세 빌드 순서대로 자동 진행 — 슬라이더로 게임 시점을 조절하세요'
+          : '장비 레벨·아이템과 상대를 직접 조정합니다'}
+      />
       {/* 자동 세팅 */}
       {setting === 'auto' && (
         <section className="panel auto">
@@ -696,9 +713,9 @@ export default function App() {
       )}
 
       {/* 공격킷 */}
+      <SecHead title="공격킷 추천" sub={fieldMode ? '상대 유형별로 딜이 가장 잘 나오는 킷 — 클릭해 상세 비교' : '선택한 상대에게 딜이 가장 잘 나오는 킷'} />
       <section className="panel kits">
         <div className="kits-head">
-          <span className="kh-title">공격킷</span>
           {fieldMode && (
             <span className="kh-sort">
               <span className="lbl">정렬</span>
@@ -749,9 +766,10 @@ export default function App() {
 
       {/* 방어킷 — 받는 피해 기준 생존 사이클 (필드 모드 전용) */}
       {fieldMode && defRank && (
+        <>
+        <SecHead title="방어킷 추천" sub="상대 공격을 오래 버티게 해주는 킷 — 받는 피해로 생존을 계산" />
         <section className="panel kits def">
           <div className="kits-head">
-            <span className="kh-title">방어킷</span>
             <span className="kh-legend">
               숫자 = 상대의 <b>사이클+궁을 버티는 횟수</b> (높을수록 오래 생존) · ★ 종합 최적 · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)
             </span>
@@ -785,6 +803,7 @@ export default function App() {
             })}
           </div>
         </section>
+        </>
       )}
 
       {/* 필드 구성 스택 바 — 입장률·목걸이·방어킷 분포로 분할 (수동 모드에선 상대 세팅 패널에 표시) */}
@@ -803,6 +822,12 @@ export default function App() {
       )}
 
       {/* 결과 */}
+      <SecHead
+        title="예상 전투 결과"
+        sub={fieldMode
+          ? '지금 세팅으로 상대 유형별 한타 딜(궁 제외/포함)과 처치까지 걸리는 컷'
+          : '선택한 상대와 1:1 — 스킬별 데미지와 처치 컷'}
+      />
       <section className={fieldMode ? 'results five' : 'results'}>
         {sims.map((s, i) => (
           <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat} />
