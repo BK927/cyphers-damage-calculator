@@ -595,6 +595,104 @@ export function rankDefKits(
   return scored
 }
 
+// ===== 강화 순서 추천 (upgrade-order optimizer) =====
+
+// 강화 1회당 캐릭터 레벨 상승 (부위별). 누락 슬롯은 +1 폴백.
+const LEVEL_GAIN: Record<string, number> = {
+  '손(공격)': 4, '가슴(체력)': 4,
+  '머리(치명)': 3, '허리(회피)': 3, '다리(방어)': 3, '발(이동)': 3,
+  '목': 2, '장신구1': 1, '장신구2': 1, '장신구3': 1, '장신구4': 1, '장신구ALL': 1,
+}
+const reqLevel = (itemLevel: number) => 10 * (itemLevel - 1) // L강 구매 필요 캐릭터 레벨
+
+// 캐릭터 레벨 = 산 강화의 누적 (부위별 상승량 합)
+function charLevel(gear: GearState): number {
+  let lv = 0
+  for (const [slot, p] of Object.entries(gear)) lv += (LEVEL_GAIN[slot] ?? 1) * (p.level || 0)
+  return lv
+}
+
+export interface UpgradeStep {
+  slot: string
+  level: number // 이 강화 후 그 슬롯 레벨
+  coin: number // 이번 강화 비용
+  cumCoin: number // 누적 비용
+  value: number // 강화 적용 후 목표값
+  gain: number // Δ = 적용 후 − 적용 전
+}
+
+/**
+ * 강화 순서 최적화 — 빈 장비에서 슬롯별 1레벨씩 사며 각 시점 최선 후보를 채택.
+ * greedy=절대 이득(Δ) 최대(한 방 큰 것 먼저), efficiency=코인당 이득(Δ/코인) 최대(면적 근사).
+ * L강 구매 필요 캐릭 레벨 = 10×(L−1), 캐릭 레벨 = 강화 누적(부위별 LEVEL_GAIN).
+ * 상대(필드/타깃)는 풀빌드 기준(refStage)으로 루프 밖에서 1회만 구성해 재사용.
+ */
+export function optimizeUpgradeOrder(
+  slug: string,
+  kind: 'attack' | 'defense',
+  kit: KitOption | null,
+  tier: Tier,
+  mode: 'greedy' | 'efficiency',
+): UpgradeStep[] {
+  const slots = gearSlotsOf(slug, tier)
+  const refStage = maxStageOf(slug, tier) // 상대는 풀빌드 기준 고정
+
+  // 상대는 루프 밖 1회 구성 (value가 필드 전체를 순회하므로 필수)
+  const field: IncomingAttacker[] = kind === 'defense'
+    ? [
+        ...incomingField('dealer', refStage, tier, slug),
+        ...incomingField('tankArmor', refStage, tier, slug),
+        ...incomingField('tankEvade', refStage, tier, slug),
+      ]
+    : []
+  const target: Target | null = kind === 'attack'
+    ? mergeFields(
+        subFieldTarget('dealer', refStage, tier, slug),
+        subFieldTarget('tankArmor', refStage, tier, slug),
+        subFieldTarget('tankEvade', refStage, tier, slug),
+      )
+    : null
+
+  // 목표값: defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜
+  const value = (gear: GearState): number => {
+    if (kind === 'defense') {
+      const dmg = incomingSim(field, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
+      return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
+    }
+    return simulate(slug, attackerFrom(slug, gear, kit, tier), target!, '1st').cyclePlusUlt
+  }
+
+  const gear: GearState = {}
+  const steps: UpgradeStep[] = []
+  let cumCoin = 0
+  let base = value(gear) // 현 시점 값
+
+  for (;;) {
+    const lv = charLevel(gear)
+    let best: { slot: string; level: number; coin: number; val: number; gain: number; score: number } | null = null
+    for (const [slot, cands] of Object.entries(slots)) {
+      const item = cands[0]
+      if (!item) continue
+      const cur = gear[slot]?.level ?? 0
+      const next = cur + 1
+      if (next > item.levels.length) continue // 이미 최대
+      if (lv < reqLevel(next)) continue // 구매 필요 레벨 미달
+      const coin = item.levels[next - 1].coin
+      const trial: GearState = { ...gear, [slot]: { item: 0, level: next } }
+      const val = value(trial)
+      const gain = val - base
+      const score = mode === 'greedy' ? gain : gain / (coin || 1)
+      if (!best || score > best.score) best = { slot, level: next, coin, val, gain, score }
+    }
+    if (!best) break // 후보 없음 (전 슬롯 최대 or 필요 레벨 미달)
+    gear[best.slot] = { item: 0, level: best.level }
+    cumCoin += best.coin
+    steps.push({ slot: best.slot, level: best.level, coin: best.coin, cumCoin, value: best.val, gain: best.gain })
+    base = best.val
+  }
+  return steps
+}
+
 // ===== 킷 착용률 (필드 전체, 입장률 가중) =====
 
 const usageCache = new Map<string, Map<string, number>>()

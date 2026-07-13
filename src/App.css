@@ -318,6 +318,39 @@
 .field-bar .fb-seg.armor .fb-lbl { color: var(--tank); }
 .field-bar .fb-seg.evade .fb-lbl { color: var(--evadet); }
 
+/* ---------- 강화 순서 추천 ---------- */
+.upo { padding: 14px 18px; display: flex; flex-direction: column; gap: 9px; }
+.upo-note { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upo-note b { color: var(--text-2); font-weight: 600; }
+.upo-hint { margin-left: auto; color: var(--text-3); }
+.upo-row { display: flex; align-items: center; gap: 10px; }
+.upo-lbl {
+  flex-shrink: 0; width: 108px; font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.upo-lbl::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.upo-lbl.greedy { color: var(--accent-2); }
+.upo-lbl.eff { color: var(--gold); }
+.upo-lbl.rank { color: var(--text-3); }
+.upo-seq {
+  display: flex; align-items: center; gap: 5px; overflow-x: auto; flex: 1; min-width: 0;
+  padding-bottom: 3px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+}
+.upo-chip {
+  flex-shrink: 0; display: inline-flex; align-items: baseline; gap: 3px;
+  font-size: 11px; color: var(--text-2); background: var(--inset);
+  border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; white-space: nowrap;
+}
+.upo-chip b { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--accent-2); }
+.upo-chip.hp { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.upo-chip.armor { border-color: color-mix(in srgb, var(--tank) 40%, var(--line)); }
+.upo-chip.armor b { color: var(--tank); }
+.upo-chip.evade { border-color: color-mix(in srgb, var(--evadet) 40%, var(--line)); }
+.upo-chip.evade b { color: var(--evadet); }
+.upo-chip.atk b { color: var(--dealer); }
+.upo-seq .upo-chip:not(:first-child)::before { content: '→'; color: var(--text-3); margin: 0 4px 0 -1px; align-self: center; font-size: 10px; }
+.upo-more, .upo-empty { flex-shrink: 0; font-size: 11px; color: var(--text-3); }
+
 /* ---------- Results ---------- */
 .results { display: grid; gap: 10px; }
 .results.five { grid-template-columns: repeat(2, 1fr); }

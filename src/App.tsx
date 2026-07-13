@@ -29,6 +29,7 @@ import {
   kitUsage,
   maxStageOf,
   mergeFields,
+  optimizeUpgradeOrder,
   rankDefKits,
   rankKits,
   simulate,
@@ -40,6 +41,7 @@ import {
   type SimResult,
   type SkillClass,
   type Target,
+  type UpgradeStep,
 } from './recommend'
 import type { SkillMode } from './types'
 
@@ -71,6 +73,17 @@ const SLOT_SHORT: Record<string, string> = {
   '손(공격)': '손', '머리(치명)': '머리', '가슴(체력)': '가슴', '허리(회피)': '허리',
   '다리(방어)': '다리', '발(이동)': '발', 목: '목',
   장신구1: '장신1', 장신구2: '장신2', 장신구3: '장신3', 장신구4: '장신4',
+}
+// 강화 순서 추천 칩 약칭 (셔츠·바지·링)
+const UPO_SHORT: Record<string, string> = {
+  '손(공격)': '손', '머리(치명)': '머리', '가슴(체력)': '셔츠', '허리(회피)': '허리',
+  '다리(방어)': '바지', '발(이동)': '발', 목: '목',
+  장신구1: '링', 장신구2: '링', 장신구3: '링', 장신구4: '링', 장신구ALL: '링',
+}
+// 슬롯별 톤 클래스 (기존 role 색과 어울리게)
+const UPO_TONE: Record<string, string> = {
+  '가슴(체력)': 'hp', 목: 'hp', '다리(방어)': 'armor', '허리(회피)': 'evade',
+  '손(공격)': 'atk', '머리(치명)': 'atk',
 }
 const fmt = (n: number) => Math.round(n).toLocaleString()
 const FORMULA_TIP = [
@@ -727,6 +740,19 @@ export default function App() {
     }))
   }, [gearEff, slug, tier])
 
+  // 강화 순서 추천 (자동 모드 전용) — 현재 탭(공격/방어)·선택 킷 기준 탐욕/효율 + 랭커 빌드
+  // 무거우니 auto 모드일 때만 계산. 킷: 공격=공격 최적킷, 방어=선택 방어킷
+  const upoKind: 'attack' | 'defense' = simView === 'attack' ? 'attack' : 'defense'
+  const upoKit = simView === 'attack' ? kitRank[0]?.kit ?? null : selectedDefKit
+  const upgradeOrders = useMemo(() => {
+    if (setting !== 'auto') return null
+    return {
+      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy'),
+      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency'),
+      ranker: (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level })),
+    }
+  }, [setting, slug, simView, upoKit, tier])
+
   return (
     <div className="app">
       <header className="topbar">
@@ -845,6 +871,42 @@ export default function App() {
             {build && <span className="src">구매 순서: 랭커 매치 {build.samples.toLocaleString()}판 (Neople API)</span>}
           </div>
         </section>
+      )}
+
+      {/* 강화 순서 추천 (자동 모드 · 현재 탭·선택 킷 기준) */}
+      {setting === 'auto' && upgradeOrders && (
+        <>
+          <SecHead
+            title="강화 순서 추천"
+            sub={simView === 'attack'
+              ? '매 구매 시점 코인 대비 딜 이득이 가장 큰 순서로 강화 · 상대는 풀빌드 기준'
+              : '매 구매 시점 코인 대비 생존 이득이 가장 큰 순서로 강화 · 상대는 풀빌드 기준'}
+          />
+          <section className="panel upo">
+            <div className="upo-note">
+              {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
+              <span className="upo-hint">탐욕 = 한 방 큰 것 먼저 · 효율 = 코인 대비 이득 먼저</span>
+            </div>
+            {([
+              ['각 시점 최선 (탐욕)', 'greedy', upgradeOrders.greedy],
+              ['전 구간 최적 (효율)', 'eff', upgradeOrders.efficiency],
+              ['실제 랭커 빌드', 'rank', upgradeOrders.ranker],
+            ] as [string, string, { slot: string; level: number }[] | UpgradeStep[]][]).map(([label, tone, steps]) => (
+              <div key={tone} className="upo-row">
+                <span className={`upo-lbl ${tone}`}>{label}</span>
+                <div className="upo-seq">
+                  {steps.length === 0 && <span className="upo-empty">데이터 없음</span>}
+                  {steps.slice(0, 16).map((s, i) => (
+                    <span key={i} className={`upo-chip ${UPO_TONE[s.slot] ?? ''}`} title={s.slot}>
+                      {UPO_SHORT[s.slot] ?? s.slot}<b>{s.level}</b>
+                    </span>
+                  ))}
+                  {steps.length > 16 && <span className="upo-more">…</span>}
+                </div>
+              </div>
+            ))}
+          </section>
+        </>
       )}
 
       {/* 수동 세팅 */}
