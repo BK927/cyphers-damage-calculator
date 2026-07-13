@@ -232,7 +232,8 @@ function ResultPanel({
         </tbody>
       </table>
       <div className="rp-sub">
-        <span>사이클 <b>{fmt(sim.cycle)}</b></span>
+        <span>사이클 <b>{fmt(sim.cycle)}</b><em>궁 제외</em></span>
+        <span>사이클＋궁 <b>{fmt(sim.cyclePlusUlt)}</b><em>궁 포함</em></span>
         {sim.grab > 0 && <span>＋잡기 <b>{fmt(sim.cyclePlusGrab)}</b></span>}
         <span className="ke">킷 효과 <b className={gain >= 0 ? 'up' : 'down'}>{gain >= 0 ? '+' : ''}{gain}%</b></span>
       </div>
@@ -647,7 +648,7 @@ export default function App() {
                       <div><span>평균 HP</span><b>{fmt(fieldProfile.hp)}</b><em>처치까지 기준</em></div>
                     </div>
                     <div className="opp-roster">
-                      <span className="lbl">만나는 상대 전원 <small>{fieldProfile.roster.length}명 · 입장률 가중 비중</small></span>
+                      <span className="lbl"><small>{fieldProfile.roster.length}명 · 입장률 가중 비중</small></span>
                       <div className="roster">
                         {fieldProfile.roster.map((t) => (
                           <span key={t.slug} className="rst" title={`${t.name} · 필드의 ${(t.pct * 100).toFixed(2)}%`}>
