@@ -86,13 +86,16 @@ function kitName(k: KitOption): string {
   if (crit) return '이펙트'
   return k.name
 }
-// 방어킷 표시 이름 — "배트 타즈"처럼 붙는 캐릭터별 접두사를 떼고 킷 패밀리(마지막 단어)만.
+// 방어킷 표시 이름 — 타즈·플래쉬만 캐릭터별 접두사("배트 타즈"…)가 붙으므로 그것만 떼고,
+// 나머지(솔리드 스위퍼·닷지 실피드·바이벤 스테민II 등)는 고유 이름이라 그대로 유지.
 // "방어"는 기본 방어킷(방어%만) → 명확히 표기.
 function defKitName(k: KitOption): string {
   const n = k.name.trim()
   if (n === '킷 없음') return '킷 없음'
   if (n === '방어') return '방어(기본)'
-  return n.split(/\s+/).pop() || n
+  if (/\s타즈$/.test(n)) return '타즈'
+  if (/\s플래쉬$/.test(n)) return '플래쉬'
+  return n
 }
 // 킷 착용률 뱃지 (필드 전체·입장률 가중) — NONE_KIT은 뱃지 없음
 function usageBadge(usage: Map<string, number>, k: KitOption) {
