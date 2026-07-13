@@ -1,0 +1,83 @@
+name: 데이터 갱신 + 배포
+
+# 사이퍼즈 정기점검(매주 목요일 KST) 이후 통계·스킬 계수를 다시 수집해 배포한다.
+# 금요일 오전 KST에 1회 — 점검 직후라 새 밸런스를 반영하고, 게임/통계의 주간 리듬에 맞음.
+on:
+  schedule:
+    - cron: '0 0 * * 5' # 매주 금요일 00:00 UTC = 금요일 09:00 KST
+  workflow_dispatch: # 수동 실행 버튼
+
+permissions:
+  contents: write # 갱신된 데이터 커밋/푸시
+  pages: write
+  id-token: write
+
+# 예약 실행과 수동 실행이 겹쳐도 긴 수집을 중단시키지 않음
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150 # meta 수집(~5천 요청)이 길어 넉넉히
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 스크래퍼는 개별 스텝 + 실패 허용 — 한 엔드포인트가 죽어도 나머지 신선한 데이터로 배포.
+      # 각 스크래퍼는 끝에서 한 번에 파일을 쓰므로, 실패 시 기존 파일이 그대로 유지됨.
+      - name: 스킬 계수 수집 (밸런스 패치 반영)
+        continue-on-error: true
+        run: node scripts/scrape-skills.mjs
+      - name: 입장/승률·선호 아이템 수집
+        continue-on-error: true
+        run: node scripts/scrape-stats.mjs
+      - name: 티어별 착용/입장 메타 수집
+        continue-on-error: true
+        run: node scripts/scrape-meta.mjs
+      - name: 아이템 구매 순서 수집 (Neople API)
+        continue-on-error: true
+        env:
+          NEOPLE_API_KEY: ${{ secrets.NEOPLE_API_KEY }}
+          PLAYERS: '600'
+          MPP: '12'
+          MATCH_CAP: '5000'
+        run: node scripts/scrape-buildorder.mjs
+
+      # 변경분이 있을 때만 커밋 (GITHUB_TOKEN 푸시는 다른 워크플로를 트리거하지 않음 → 이 워크플로가 직접 배포)
+      - name: 데이터 변경분 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/data/skills.json src/data/stats.json src/data/meta.json src/data/buildorder.json
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 이번 주는 통계/계수 변동 없음"
+          else
+            git commit -m "데이터 자동 갱신 $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: 빌드
+        run: pnpm build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: refresh
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
