@@ -1,5 +1,27 @@
 .app { display: flex; flex-direction: column; gap: 18px; }
 
+/* ---------- 모션 (은은한 진입/전환) ---------- */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+/* 결과 패널 진입 — 살짝 계단식 */
+.rp { animation: fadeUp 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.results.five .rp:nth-child(2) { animation-delay: 0.04s; }
+.results.five .rp:nth-child(3) { animation-delay: 0.08s; }
+.results.five .rp:nth-child(4) { animation-delay: 0.12s; }
+.results.five .rp:nth-child(5) { animation-delay: 0.16s; }
+/* 킷 섹션·계산 카드 진입 */
+.panel.kits, .panel.method, .panel.auto, .manual { animation: fadeUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.m-step { animation: fadeUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.m-steps .m-step:nth-child(2) { animation-delay: 0.05s; }
+.m-steps .m-step:nth-child(3) { animation-delay: 0.1s; }
+.m-steps .m-step:nth-child(4) { animation-delay: 0.15s; }
+/* 캐릭터 그리드 펼침 */
+.hero-picker { animation: fadeIn 0.2s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-delay: 0ms !important; transition-duration: 0.001ms !important; }
+}
+
 /* 섹션 헤더 (제목 + 서브타이틀) — 바로 아래 섹션과 묶여 보이게 */
 .sec-head { margin: 4px 2px -8px; }
 .sec-head h2 { font-family: var(--display); font-size: 14.5px; font-weight: 600; color: var(--text); letter-spacing: -0.2px; }
@@ -205,8 +227,10 @@
   background: var(--inset); border: 1px solid var(--line); border-radius: 11px;
   padding: 8px 14px 8px 10px; cursor: pointer; transition: 0.12s;
 }
-.chip:hover { border-color: var(--line-2); }
+.chip:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.chip:not(.static):active { transform: translateY(0) scale(0.99); }
 .chip.on { border-color: var(--accent); background: var(--accent-weak); }
+.chip.static:hover { transform: none; }
 .chip i { color: var(--gold); font-style: normal; font-size: 11px; }
 .chip img { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; background: var(--panel-2); }
 .kits-head .t-dealer { font-style: normal; color: var(--dealer); font-weight: 500; }
@@ -236,6 +260,7 @@
 }
 .field-bar .fb-seg {
   display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden;
+  transition: flex-grow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .field-bar .fb-seg.dealer { background: var(--dealer-weak); }
 .field-bar .fb-seg.armor { background: var(--tank-weak); }
