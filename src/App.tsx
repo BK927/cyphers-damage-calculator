@@ -61,6 +61,14 @@ const SLOT_SHORT: Record<string, string> = {
   장신구1: '장신1', 장신구2: '장신2', 장신구3: '장신3', 장신구4: '장신4',
 }
 const fmt = (n: number) => Math.round(n).toLocaleString()
+const FORMULA_TIP = [
+  '데미지 = (고정 + 계수×공격력) × 대인계수 × (1+스킬 추가공격력) × 치명·회피 × (1 − 방어×(1−관통))',
+  '',
+  '· 치명 − 회피 = 단리 대결: 차이만큼 치명(×1.3+치명피해) 또는 회피(×0.4)',
+  '· 우선구매 특전: 손 3구매 관통 +3%, 가슴 3구매 체력 +5%',
+  '· 잡기(F)는 사이클에서 제외, 패널 대표값 = 사이클 + 궁 1회',
+  '· 상대도 같은 게임 시점의 대세 세팅을 입은 것으로 가정',
+].join('\n')
 
 function kitName(k: KitOption): string {
   if (k.name === '킷 없음') return '킷 없음'
@@ -156,27 +164,41 @@ function GearPanel({
 
 /* ---------- 결과 패널 (표) ---------- */
 type Tone = 'dealer' | 'armor' | 'evade' | 'single' | 'tank' | 'overall'
+/** 패널의 통계적 근거 한 줄: 이 상대 그룹의 가중치가 어떤 통계에서 왔는지 */
+interface StatBasis {
+  line: string // 예: "탱커 중 54% — 방어킷 착용 통계"
+  tip: string // hover 상세: 유도 과정 + 표본
+}
 function ResultPanel({
-  title, sub, tone, sim, noKit,
+  title, sub, tone, sim, noKit, stat,
 }: {
   title: string
   sub: string
   tone: Tone
   sim: SimResult
   noKit: SimResult
+  stat?: StatBasis
 }) {
   const pctHp = (d: number) => `${Math.round((d / sim.hp) * 100)}`
   const kills = (sim.hp / sim.cyclePlusUlt).toFixed(2)
+  const ult = sim.cyclePlusUlt - sim.cycle
   const gain = Math.round((sim.cyclePlusUlt / (noKit.cyclePlusUlt || 1) - 1) * 100)
+  const bigTip = `사이클 ${fmt(sim.cycle)} + 궁 ${fmt(ult)} = ${fmt(sim.cyclePlusUlt)}\n상대 평균 HP ${fmt(sim.hp)} → ${kills}번 처치`
   return (
     <div className={`rp ${tone}`}>
       <div className="rp-head">
         <span className="rp-title">{title} <em>{sub}</em></span>
-        <span className="rp-big">
+        <span className="rp-big" title={bigTip}>
           <b>{fmt(sim.cyclePlusUlt)}</b>
           <span className="rp-kill">{kills}컷</span>
         </span>
       </div>
+      {stat && (
+        <div className="rp-basis" title={stat.tip}>
+          {stat.line}
+          <i>ⓘ</i>
+        </div>
+      )}
       <table>
         <thead>
           <tr><th className="l">스킬</th><th>공식</th><th>데미지</th><th>HP%</th></tr>
@@ -220,6 +242,7 @@ export default function App() {
   const [selKitSig, setSelKitSig] = useState<string | null>(null)
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
+  const [methodOpen, setMethodOpen] = useState(true)
   const [oppSlug, setOppSlug] = useState('jekiel')
   const [oppGear, setOppGear] = useState<GearState | null>(null)
   const [oppKitIdx, setOppKitIdx] = useState(0)
@@ -300,19 +323,72 @@ export default function App() {
     return [...kitRank].sort((a, b) => kitScore(b.per, sortKey) - kitScore(a.per, sortKey))
   }, [kitRank, sortKey])
 
+  // 필드 가중치 요약: 입장률·킷분포에서 유도된 각 그룹의 비중 (패널 stat + 계산 설명 공용)
+  const shares = useMemo(() => {
+    if (!fieldMode) return null
+    const [d, a, e] = targets
+    const w = (t: Target) => (t.kind === 'field' ? t.totalW : 0)
+    const nChars = (t: Target) => (t.kind === 'field' ? new Set(t.items.map((i) => i.slug)).size : 1)
+    const dW = w(d), aW = w(a), eW = w(e)
+    const tot = dW + aW + eW || 1
+    return {
+      dealer: dW / tot, tank: (aW + eW) / tot,
+      armorInTank: aW / (aW + eW || 1), evadeInTank: eW / (aW + eW || 1),
+      nDealers: nChars(d), nTanks: nChars(a),
+    }
+  }, [fieldMode, targets])
+
   // 결과 패널 구성: 필드 모드=종합/딜러/탱커/방탱/회탱, 단일=1:1
+  // 각 패널의 stat = 이 상대 그룹의 비중이 어떤 통계에서 유도됐는지
   const panels = useMemo(() => {
     if (!fieldMode) {
       const name = characters.find((c) => c.slug === oppSlug)?.name ?? ''
-      return [{ target: targets[0], tone: 'single' as Tone, title: `vs ${name}`, sub: '1:1 직접 세팅' }]
+      return [{ target: targets[0], tone: 'single' as Tone, title: `vs ${name}`, sub: '1:1 직접 세팅', stat: undefined as StatBasis | undefined }]
     }
     const [d, a, e] = targets
+    const w = (t: Target) => (t.kind === 'field' ? t.totalW : 0)
+    const nChars = (t: Target) => (t.kind === 'field' ? new Set(t.items.map((i) => i.slug)).size : 1)
+    const dW = w(d), aW = w(a), eW = w(e)
+    const tot = dW + aW + eW || 1
+    const tankW = aW + eW || 1
+    const pctS = (x: number) => `${Math.round(x * 100)}%`
+    const settingNote = '각 상대의 세팅: 부위별 착용률(이 티어 주간 통계)로 가중한 기대 세팅을\n랭커 구매 순서에 따라 나와 같은 게임 시점까지 착용한 상태'
     return [
-      { target: mergeFields(d, a, e), tone: 'overall' as Tone, title: '종합', sub: '실전 평균 전체' },
-      { target: d, tone: 'dealer' as Tone, title: 'vs 딜러', sub: '공격형 목걸이 상대' },
-      { target: mergeFields(a, e), tone: 'tank' as Tone, title: 'vs 탱커', sub: '방탱+회탱 종합' },
-      { target: a, tone: 'armor' as Tone, title: 'vs 방탱', sub: '방어킷 착용 탱커' },
-      { target: e, tone: 'evade' as Tone, title: 'vs 회탱', sub: '회피킷 착용 탱커' },
+      {
+        target: mergeFields(d, a, e), tone: 'overall' as Tone, title: '종합', sub: '실전 평균 전체',
+        stat: {
+          line: `입장률 가중 — 딜러 ${pctS(dW / tot)} · 방탱 ${pctS(aW / tot)} · 회탱 ${pctS(eW / tot)}`,
+          tip: `상대 = 이 티어에 입장한 전체 캐릭터 ${nChars(d) + nChars(a)}명을 입장률로 가중한 기대값\n딜러/탱커 구분: 목걸이 착용률 1위가 공격형이냐 방어형이냐\n탱커 안의 방탱/회탱 비율: 각 탱커의 방어킷 착용 분포\n\n${settingNote}`,
+        } as StatBasis | undefined,
+      },
+      {
+        target: d, tone: 'dealer' as Tone, title: 'vs 딜러', sub: '공격형 목걸이 상대',
+        stat: {
+          line: `필드의 ${pctS(dW / tot)} · ${nChars(d)}명 — 입장률 통계 가중`,
+          tip: `이 티어 입장률에서 딜러(공격형 목걸이 1위)로 분류된 ${nChars(d)}명\n각자의 입장률만큼 가중해 평균\n\n${settingNote}`,
+        } as StatBasis | undefined,
+      },
+      {
+        target: mergeFields(a, e), tone: 'tank' as Tone, title: 'vs 탱커', sub: '방탱+회탱 종합',
+        stat: {
+          line: `필드의 ${pctS(tankW / tot)} · ${nChars(a)}명 — 입장률 통계 가중`,
+          tip: `이 티어 입장률에서 탱커(방어형 목걸이 1위)로 분류된 ${nChars(a)}명\n아래 방탱/회탱을 방어킷 착용 비율로 합친 것과 동일\n\n${settingNote}`,
+        } as StatBasis | undefined,
+      },
+      {
+        target: a, tone: 'armor' as Tone, title: 'vs 방탱', sub: '방어킷 착용 탱커',
+        stat: {
+          line: `탱커 중 ${pctS(aW / tankW)} — 방어킷 착용 통계`,
+          tip: `각 탱커의 방어킷 착용 분포(주간)에서 방어형 킷(타즈 등) 비중만 합산\n→ 탱커 필드의 ${pctS(aW / tankW)}\n회탱과 합치면 탱커 전체가 됨 (총합 보존)\n\n${settingNote}`,
+        } as StatBasis | undefined,
+      },
+      {
+        target: e, tone: 'evade' as Tone, title: 'vs 회탱', sub: '회피킷 착용 탱커',
+        stat: {
+          line: `탱커 중 ${pctS(eW / tankW)} — 회피킷 착용 통계`,
+          tip: `각 탱커의 방어킷 착용 분포(주간)에서 회피형 킷(플래쉬·실피드 등) 비중만 합산\n→ 탱커 필드의 ${pctS(eW / tankW)}\n방탱과 합치면 탱커 전체가 됨 (총합 보존)\n\n${settingNote}`,
+        } as StatBasis | undefined,
+      },
     ]
   }, [fieldMode, targets, oppSlug])
 
@@ -355,7 +431,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <h1>사이퍼즈 킷 시뮬레이터</h1>
-        <span className="date">넥슨·Neople 통계 {metaScrapedAt}</span>
+        <span className="date">넥슨 주간 통계 · {TIER_LABELS[tier]} 티어 · {metaScrapedAt} 수집</span>
       </header>
 
       {/* 캐릭터 + 모드 (이름 클릭 → 선택 그리드 확장) */}
@@ -452,7 +528,7 @@ export default function App() {
                 {s.slot}<b>{s.lv}</b>
               </span>
             ))}
-            {build && <span className="src">대세 순서 · {build.samples}판 집계</span>}
+            {build && <span className="src">구매 순서: 랭커 매치 {build.samples.toLocaleString()}판 (Neople API)</span>}
           </div>
         </section>
       )}
@@ -530,7 +606,7 @@ export default function App() {
             </span>
           )}
           <span className="kh-legend">
-            ★ 종합 최적
+            실제 착용 킷 후보 · ★ 종합 최적
             {fieldMode && <> · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)</>}
           </span>
         </div>
@@ -562,13 +638,76 @@ export default function App() {
       {/* 결과 */}
       <section className={fieldMode ? 'results five' : 'results'}>
         {sims.map((s, i) => (
-          <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} />
+          <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat} />
         ))}
       </section>
 
+      {/* 계산 과정: 통계 → 결과가 나오기까지 */}
+      <section className="panel method">
+        <button className="m-head" onClick={() => setMethodOpen((o) => !o)}>
+          <span>이 숫자는 어떻게 나왔나요?</span>
+          <small>입장률 → 착용 통계 → 구매 순서 → 데미지 공식, 4단계</small>
+          <i>{methodOpen ? '▴' : '▾'}</i>
+        </button>
+        {methodOpen && (
+          <>
+            <div className="m-steps">
+              <div className="m-step">
+                <em>1</em>
+                <b>누구를 만나나</b>
+                <p>이번 주 <u>{TIER_LABELS[tier]} 티어</u> 입장 통계로 상대가 나올 확률을 정합니다. 많이 플레이된 캐릭터일수록 결과에 더 크게 반영됩니다.</p>
+                {shares && (
+                  <p className="num">
+                    딜러 {Math.round(shares.dealer * 100)}% ({shares.nDealers}명) · 탱커 {Math.round(shares.tank * 100)}% ({shares.nTanks}명)<br />
+                    탱커 안에서 방어킷 착용 비율대로<br />방탱 {Math.round(shares.armorInTank * 100)}% : 회탱 {Math.round(shares.evadeInTank * 100)}%
+                  </p>
+                )}
+              </div>
+              <div className="m-step">
+                <em>2</em>
+                <b>상대는 뭘 입었나</b>
+                <p>부위마다 이번 주 <u>{TIER_LABELS[tier]} 티어</u>에서 실제 착용된 비율 그대로 섞은 <u>기대 세팅</u>을 입은 것으로 봅니다. 1위 아이템만 고르는 게 아니라 착용 분포 전체를 반영합니다.</p>
+                <p className="num">
+                  예) {char.name} 손 슬롯:<br />
+                  {(() => {
+                    const cands = gearSlotsOf(slug, tier)['손(공격)'] ?? []
+                    const total = cands.reduce((s, c) => s + (c.pct || 0), 0) || 1
+                    return cands.slice(0, 2).map((c) => `${c.name} ${Math.round((c.pct / total) * 100)}%`).join(' + ') + (cands.length > 2 ? ' + …' : '')
+                  })()}<br />
+                  비율대로 가중 평균 (표본 {myView.samples.toLocaleString()}판)
+                </p>
+              </div>
+              <div className="m-step">
+                <em>3</em>
+                <b>게임 시점 맞추기</b>
+                <p>랭커 매치 {build ? build.samples.toLocaleString() : '—'}판의 실제 구매 로그로 "몇 번째 구매에 뭘 사는지"를 집계해, 나와 상대 모두 같은 시점까지 장비를 채웁니다.</p>
+                <p className="num">지금 보는 시점: {setting === 'auto' ? `${stageEff} / ${maxStage}번째 구매` : `수동 세팅 (${gearLevelCount(gearEff)}구매 상당)`}</p>
+              </div>
+              <div className="m-step">
+                <em>4</em>
+                <b>데미지 계산</b>
+                <p>커뮤니티 검증 데미지 공식으로 상대 한 명 한 명 스킬 데미지를 계산한 뒤, 1번의 확률로 가중 평균한 값이 각 패널의 숫자입니다.</p>
+                <p className="num formula" title={FORMULA_TIP}>데미지 공식 자세히 ⓘ</p>
+              </div>
+            </div>
+            <p className="m-note">
+              단순화한 부분: 부위별 착용률 상위 4개까지만 반영(그 아래 꼬리는 절사) · 부위 방어%의 평균은 선형 근사 · 딜러/탱커 구분은 목걸이 착용률 1위 기준 · 구매 순서는 랭커 데이터로 전 티어 공용 · 방어·회피 변환은 근사치
+            </p>
+          </>
+        )}
+      </section>
+
+      {/* 출처 */}
       <footer className="foot">
-        스킬 계수·아이템 레벨은 공식/게임 값, 상대 세팅·빌드 순서는 넥슨·Neople 통계 (랭커 {build ? build.samples.toLocaleString() : '—'}판 기준).
-        방어 스탯 변환은 근사 — 절대값보다 킷 간 비교를 신뢰하세요.
+        <p className="foot-src">
+          <b>{char.name}</b>의 스킬 계수·기본 스탯은 <b>공식 홈페이지</b>, 부위별 착용률·입장률은{' '}
+          <b>넥슨 주간 통계</b>({TIER_LABELS[tier]} 티어 · {metaScrapedAt} · 표본 {myView.samples.toLocaleString()}판),{' '}
+          아이템 구매 순서는 <b>Neople 랭커 매치 {build ? build.samples.toLocaleString() : '—'}판</b>에서 가져왔습니다.
+        </p>
+        <p className="foot-meta">
+          <span className="foot-formula" title={FORMULA_TIP}>계산식·규칙 ⓘ</span>
+          <span> · 방어·회피 변환은 근사, 킷 간 비교용 · 비공식 팬 도구, 인게임 실측과 다를 수 있음</span>
+        </p>
       </footer>
     </div>
   )
