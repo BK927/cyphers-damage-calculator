@@ -187,6 +187,9 @@
 }
 .gp-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .gp-row:last-child { border-bottom: none; }
+/* 내 방어킷 선택 (내 장비 패널 하단) */
+.gp-row.dk { border-top: 1px solid var(--line-2); border-bottom: none; margin-top: 3px; padding-top: 9px; }
+.gp-row.dk .gp-slot { color: var(--tank); }
 .gp-slot { width: 38px; flex-shrink: 0; font-size: 10.5px; color: var(--text-3); }
 .gp-icon { width: 26px; height: 26px; border-radius: 6px; object-fit: cover; background: var(--inset); border: 1px solid var(--line-2); flex-shrink: 0; }
 .gp-icon.off { opacity: 0.3; filter: grayscale(1); }
@@ -262,11 +265,13 @@
 .kits-head .t-dealer { font-style: normal; color: var(--dealer); font-weight: 500; }
 .kits-head .t-armor { font-style: normal; color: var(--tank); font-weight: 500; margin-left: 6px; }
 .kits-head .t-evade { font-style: normal; color: var(--evadet); font-weight: 500; margin-left: 6px; }
+.kits-head .t-tank { font-style: normal; color: var(--tank); font-weight: 500; margin-left: 6px; }
 .chip .tri { display: inline-flex; gap: 7px; align-items: baseline; }
 .chip .tnum { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; display: inline-flex; align-items: baseline; gap: 2px; color: var(--text-2); }
 .chip .tnum.dealer { color: var(--dealer); }
 .chip .tnum.armor { color: var(--tank); }
 .chip .tnum.evade { color: var(--evadet); }
+.chip .tnum.tank { color: var(--tank); }
 .chip .tnum em { font-style: normal; font-size: 7px; line-height: 1; }
 .chip b { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .chip.on b { color: var(--accent-2); }
@@ -337,6 +342,11 @@
 .rp th.l { text-align: left; width: 34%; }
 .rp td { padding: 7px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp td.l { text-align: left; color: var(--text); }
+/* 위협 TOP 상대 얼굴 (피격 패널 표) */
+.rp td.l .th-face {
+  width: 16px; height: 16px; border-radius: 4px; object-fit: cover; vertical-align: middle;
+  margin-right: 6px; background: var(--inset); border: 1px solid var(--line-2);
+}
 .rp td.l i {
   font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--text-3);
   margin-right: 5px; text-transform: uppercase; letter-spacing: 0.4px;

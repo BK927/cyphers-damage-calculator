@@ -488,6 +488,7 @@ export interface IncomingAttacker {
   w: number
   atk: Attacker
   skills: { skill: Skill; cls: SkillClass }[]
+  slug?: string // 위협 TOP 표시용 라벨
 }
 
 /**
@@ -505,7 +506,7 @@ export function incomingField(kind: FieldKind, stage: number, tier: Tier = '0', 
     const neck: NeckFilter = kind === 'dealer' ? 'attack' : 'defense'
     const atk = attackerFrom(c.slug, gear, expectedAtkKit(m.attackKits ?? []), tier, { neck })
     const skills = getSkills(c.slug, '1st').filter((s) => s.cls !== 'grab') // 잡기 제외 → 사이클+궁
-    const push = (w: number) => { if (w > 0) out.push({ w, atk, skills }) }
+    const push = (w: number) => { if (w > 0) out.push({ w, atk, skills, slug: c.slug }) }
     if (kind === 'dealer') { push(m.pickRate * dr); continue }
     const tankBase = m.pickRate * (1 - dr)
     if (tankBase <= 0) continue
@@ -521,10 +522,53 @@ export function incomingField(kind: FieldKind, stage: number, tier: Tier = '0', 
   return out
 }
 
+/**
+ * 나를 때리는 공격자 목록이 넣는 받는 피해 — 그룹(입장률) 가중 평균.
+ * 각 공격자는 사이클(평타+스킬) 합 + 최대 기대 궁 1개. 피격에선 min=최소피해(유리)/max=최대피해(위험).
+ * top5 = 개인 사이클+궁(기대) 상위 5명 (slug당 최대 1개).
+ */
+export interface IncomingResult {
+  cycle: DmgParts // 평타+스킬 (잡기·궁 제외)
+  cyclePlusUlt: DmgParts // 사이클 + 최대 궁
+  top5: { slug: string; dmg: number }[]
+}
+
+export function incomingSim(attackers: IncomingAttacker[], myDef: Defender): IncomingResult {
+  const totalW = attackers.reduce((s, a) => s + a.w, 0) || 1
+  let cE = 0, cN = 0, cX = 0, uE = 0, uN = 0, uX = 0
+  const byChar = new Map<string, number>() // slug → 최대 개인 사이클+궁(기대)
+  for (const a of attackers) {
+    let cyE = 0, cyN = 0, cyX = 0, ulE = 0, ulN = 0, ulX = 0
+    for (const { skill, cls } of a.skills) {
+      const d = skillDamageParts(skill, a.atk, myDef)
+      if (cls === 'ult') {
+        if (d.exp > ulE) { ulE = d.exp; ulN = d.min; ulX = d.max } // 기대값 최대인 궁 채택
+      } else {
+        cyE += d.exp; cyN += d.min; cyX += d.max // 평타·스킬 (잡기는 이미 제외)
+      }
+    }
+    cE += a.w * cyE; cN += a.w * cyN; cX += a.w * cyX
+    uE += a.w * (cyE + ulE); uN += a.w * (cyN + ulN); uX += a.w * (cyX + ulX)
+    if (a.slug) {
+      const indiv = cyE + ulE
+      if (indiv > (byChar.get(a.slug) ?? -1)) byChar.set(a.slug, indiv)
+    }
+  }
+  const top5 = [...byChar.entries()]
+    .map(([slug, dmg]) => ({ slug, dmg }))
+    .sort((a, b) => b.dmg - a.dmg)
+    .slice(0, 5)
+  return {
+    cycle: { exp: cE / totalW, min: cN / totalW, max: cX / totalW },
+    cyclePlusUlt: { exp: uE / totalW, min: uN / totalW, max: uX / totalW },
+    top5,
+  }
+}
+
 /** 방어킷 후보 랭킹 — 필드가 내게 넣는 사이클+궁으로 생존 사이클 수 산정 (클수록 좋음) */
 export interface DefKitRank {
   kit: KitOption
-  per: [number, number, number] // 딜러 / 방탱 / 회탱 생존 사이클 수
+  per: [number, number] // 딜러 / 탱커 생존 사이클 수 (탱커 = 방탱+회탱 병합)
   total: number // 필드 가중 종합 생존 사이클 수
 }
 
@@ -536,30 +580,20 @@ export function rankDefKits(
   tier: Tier = '0',
 ): DefKitRank[] {
   // 공격자 목록은 방어킷 후보와 무관 → 후보 루프 밖에서 1회만 구성
-  const fields = FIELD_KINDS.map((k) => incomingField(k, stage, tier, slug))
-  const totalW = fields.map((f) => f.reduce((s, a) => s + a.w, 0) || 1)
+  const dealer = incomingField('dealer', stage, tier, slug)
+  const tank = [...incomingField('tankArmor', stage, tier, slug), ...incomingField('tankEvade', stage, tier, slug)]
+  const all = [...dealer, ...tank]
+  const groups = [dealer, tank]
 
   const scored = options.map((kit) => {
     const def = defenderFrom(slug, gear, kit, tier) // 내 장비는 정확값
     const myHp = hpFrom(slug, gear, kit, tier)
-    let allDmg = 0, allW = 0 // 종합용 (전 필드 가중 피해 합)
-    const per = fields.map((atks, i) => {
-      let dmgW = 0 // Σ w·(사이클+궁), 이 후보의 def에 의존하므로 후보마다 재계산
-      for (const a of atks) {
-        let cycle = 0, ult = 0
-        for (const { skill, cls } of a.skills) {
-          const d = skillDamage(skill, a.atk, def)
-          if (cls === 'ult') ult = Math.max(ult, d)
-          else cycle += d // 평타·스킬 (잡기는 이미 제외)
-        }
-        dmgW += a.w * (cycle + ult)
-      }
-      allDmg += dmgW; allW += totalW[i]
-      const avg = dmgW / totalW[i]
-      return avg > 0 ? myHp / avg : Infinity
-    }) as [number, number, number]
-    const combined = allW > 0 ? allDmg / allW : 0
-    const total = combined > 0 ? myHp / combined : Infinity
+    const surv = (atks: IncomingAttacker[]) => {
+      const dmg = incomingSim(atks, def).cyclePlusUlt.exp
+      return dmg > 0 ? myHp / dmg : Infinity
+    }
+    const per = groups.map(surv) as [number, number]
+    const total = surv(all)
     return { kit, per, total }
   })
   scored.sort((a, b) => b.total - a.total)

@@ -18,9 +18,15 @@ import {
   GEAR_SLOT_ORDER,
   attackerFrom,
   autoGear,
+  defenderFrom,
+  expectedAtkKit,
   fullGear,
   gearSlotsOf,
+  getSkills,
   hasTwoModes,
+  hpFrom,
+  incomingField,
+  incomingSim,
   kitUsage,
   maxStageOf,
   mergeFields,
@@ -30,6 +36,8 @@ import {
   singleTarget,
   subFieldTarget,
   type GearState,
+  type IncomingAttacker,
+  type IncomingResult,
   type SimResult,
   type SkillClass,
   type Target,
@@ -76,6 +84,9 @@ const FORMULA_TIP = [
 ].join('\n')
 
 const FIELD_LABELS = ['딜러', '방탱', '회탱'] as const
+// 방어킷 칩·피격 패널은 [딜러, 탱커] 2분할
+const DEF_TONES = ['dealer', 'tank'] as const
+const DEF_FIELD_LABELS = ['딜러', '탱커'] as const
 function kitName(k: KitOption): string {
   if (k.name === '킷 없음') return '킷 없음'
   const atk = k.attack > 0, crit = k.crit > 0, pen = (k.penetration ?? 0) > 0
@@ -125,7 +136,7 @@ const gearLevelCount = (g: GearState) => Object.values(g).reduce((s, p) => s + p
 
 /* ---------- 장비 패널 (수동 편집) ---------- */
 function GearPanel({
-  slug, tier, gear, onChange, title, action,
+  slug, tier, gear, onChange, title, action, footer,
 }: {
   slug: string
   tier: Tier
@@ -133,6 +144,7 @@ function GearPanel({
   onChange: (g: GearState) => void
   title: string
   action?: { label: string; onClick: () => void }
+  footer?: React.ReactNode
 }) {
   const slots = gearSlotsOf(slug, tier)
   return (
@@ -183,6 +195,7 @@ function GearPanel({
           </div>
         )
       })}
+      {footer}
     </div>
   )
 }
@@ -287,6 +300,100 @@ function ResultPanel({
   )
 }
 
+/* ---------- 피격 패널 (ResultPanel 미러 — 받는 피해·생존) ---------- */
+interface DefPanelData {
+  title: string
+  sub: string
+  tone: Tone
+  res: IncomingResult
+  noRes: IncomingResult
+  myHp: number
+  noHp: number
+  stat?: StatBasis
+}
+function DefensePanel({ title, sub, tone, res, noRes, myHp, noHp, stat }: DefPanelData) {
+  const inc = res.cyclePlusUlt.exp // 받는 사이클+궁 기대 피해
+  const cuts = inc > 0 ? myHp / inc : Infinity
+  const cutsLabel = Number.isFinite(cuts) ? (cuts <= 9.99 ? cuts.toFixed(2) : '9+') : '∞'
+  // 위험 등급: 궁 없이도 사망(noult=최악) > 궁 포함 사망(ult) > 버팀(none)
+  const killTier = res.cycle.exp >= myHp ? 'noult' : inc >= myHp ? 'ult' : 'none'
+  const bigTip = `사이클 ${fmt(res.cycle.exp)} + 궁 ${fmt(inc - res.cycle.exp)} = ${fmt(inc)}\n내 HP ${fmt(myHp)} → ${cutsLabel}컷에 사망`
+  const killTip = killTier === 'noult' ? '상대 사이클만으로 한 번에 사망 (매우 위험)'
+    : killTier === 'ult' ? '상대 사이클+궁에 한 번에 사망' : '한 사이클+궁을 버팀'
+  // 받는 피해 범위 (최소=유리 ~ 최대=위험) + 생존/사망
+  const rMin = res.cyclePlusUlt.min, rMax = res.cyclePlusUlt.max
+  const hasRange = rMax - rMin > 1
+  const clampPct = (x: number) => Math.min(100, Math.max(0, x))
+  const span = rMax - rMin || 1
+  const expPos = clampPct(((inc - rMin) / span) * 100)
+  const hpPct = clampPct(((myHp - rMin) / span) * 100) // 처치선(내 HP) 위치
+  const deadMin = rMin >= myHp, deadMax = rMax >= myHp
+  const fmtSurv = (dmg: number) => { const c = myHp / dmg; return c <= 9.99 ? c.toFixed(2) : '9+' }
+  // 방어킷 효과 = 킷 없음 대비 생존 사이클 증가율
+  const survKit = inc > 0 ? myHp / inc : Infinity
+  const survNo = noRes.cyclePlusUlt.exp > 0 ? noHp / noRes.cyclePlusUlt.exp : Infinity
+  const gain = Number.isFinite(survKit) && Number.isFinite(survNo) && survNo > 0 ? Math.round((survKit / survNo - 1) * 100) : 0
+  const pctHp = (d: number) => `${Math.round((d / myHp) * 100)}`
+  return (
+    <div className={`rp ${tone}`}>
+      <div className="rp-head">
+        <span className="rp-title">{title} <em>{sub}</em></span>
+        <span className="rp-big" title={bigTip}>
+          <b>{fmt(inc)}</b>
+          <span className={killTier === 'none' ? 'rp-kill' : `rp-kill k-${killTier}`} title={killTip}>
+            {killTier === 'noult' && <em className="klabel">궁없이 </em>}
+            {killTier === 'ult' && <em className="klabel">궁포함 </em>}
+            {cutsLabel}컷 {killTier === 'none' ? '버팀' : '사망'}
+          </span>
+        </span>
+      </div>
+      {stat && (
+        <div className="rp-basis" title={stat.tip}>
+          {stat.line}
+          <i>ⓘ</i>
+        </div>
+      )}
+      <table>
+        <thead>
+          <tr><th className="l">위협 TOP {res.top5.length || ''}</th><th>사이클+궁</th><th>내 HP%</th></tr>
+        </thead>
+        <tbody>
+          {res.top5.map(({ slug: s, dmg }) => (
+            <tr key={s}>
+              <td className="l"><img className="th-face" src={iconUrl(s)} alt="" loading="lazy" onError={hideOnError} />{characters.find((c) => c.slug === s)?.name ?? s}</td>
+              <td className="d">{fmt(dmg)}</td>
+              <td className="h">{pctHp(dmg)}</td>
+            </tr>
+          ))}
+          {res.top5.length === 0 && <tr><td className="l" colSpan={3}>공격자 없음</td></tr>}
+        </tbody>
+      </table>
+      {hasRange && (
+        <div className="rp-range" title="치명·회피에 따른 받는 피해 범위. 세로선=내 HP(처치선), 오른쪽=사망 구간. ✓=그 케이스에서 사망">
+          <span className="lo">
+            <span className="dmg">최소 <b>{fmt(rMin)}</b></span>
+            <em className={deadMin ? 'cut kill' : 'cut'}>{deadMin ? '✓ 사망' : `${fmtSurv(rMin)}컷 버팀`}</em>
+          </span>
+          <span className="track" style={{ background: `linear-gradient(90deg, var(--line-2) 0 ${hpPct}%, var(--role) ${hpPct}% 100%)` }}>
+            {hpPct > 1 && hpPct < 99 && <span className="hp" style={{ left: `${hpPct}%` }} />}
+            <i style={{ left: `${expPos}%` }} />
+          </span>
+          <span className="hi">
+            <span className="dmg"><b>{fmt(rMax)}</b> 최대</span>
+            <em className={deadMax ? 'cut kill' : 'cut'}>{deadMax ? '✓ 사망' : `${fmtSurv(rMax)}컷 버팀`}</em>
+          </span>
+        </div>
+      )}
+      <div className="rp-sub">
+        <span>궁 제외 <b>{fmt(res.cycle.exp)}</b></span>
+        <span>궁 포함 <b>{fmt(inc)}</b></span>
+        <span>내 HP <b>{fmt(myHp)}</b></span>
+        <span className="ke">방어킷 효과 <b className={gain >= 0 ? 'up' : 'down'}>{gain >= 0 ? '+' : ''}{gain}%</b></span>
+      </div>
+    </div>
+  )
+}
+
 /* ---------- 섹션 헤더 (제목 + 서브타이틀) ---------- */
 function SecHead({ title, sub }: { title: string; sub: string }) {
   return (
@@ -311,6 +418,7 @@ export default function App() {
   const [stage, setStage] = useState<number | null>(null) // null = max
   const [myGear, setMyGear] = useState<GearState | null>(null)
   const [selKitSig, setSelKitSig] = useState<string | null>(null)
+  const [selDefKitSig, setSelDefKitSig] = useState<string | null>(null) // 내 방어킷 (null → 추천 1위)
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
   const [methodOpen, setMethodOpen] = useState(true)
@@ -331,10 +439,10 @@ export default function App() {
   const twoModes = hasTwoModes(slug)
 
   const selectChar = (s: string) => {
-    setSlug(s); setStage(null); setMyGear(null); setSelKitSig(null); setSkillMode('1st'); setQ(''); setPickerOpen(false)
+    setSlug(s); setStage(null); setMyGear(null); setSelKitSig(null); setSelDefKitSig(null); setSkillMode('1st'); setQ(''); setPickerOpen(false)
   }
   const selectTier = (t: Tier) => {
-    setTier(t); setMyGear(null); setOppGear(null); setSelKitSig(null); setOppKitIdx(0)
+    setTier(t); setMyGear(null); setOppGear(null); setSelKitSig(null); setSelDefKitSig(null); setOppKitIdx(0)
   }
   const toggleFav = (s: string) =>
     setFavs((prev) => {
@@ -417,15 +525,59 @@ export default function App() {
   const defBestSig = defRank?.[0] ? kitSig(defRank[0].kit) : null
   const defBestPerTarget = useMemo(
     () => (defRank
-      ? [0, 1, 2].map((i) => {
+      ? [0, 1].map((i) => {
           let best = defRank[0]
           for (const s of defRank) if (s.per[i] > (best?.per[i] ?? 0)) best = s
           return best ? kitSig(best.kit) : null
         })
-      : [null, null, null]),
+      : [null, null]),
     [defRank],
   )
   const defNoneTotal = defRank?.find((s) => s.kit.name === '킷 없음')?.total ?? 0
+  // 선택된 내 방어킷 (null → 추천 1위, 없으면 킷 없음)
+  const selectedDefKit =
+    (selDefKitSig ? defOptions.find((k) => kitSig(k) === selDefKitSig) : null) ?? defRank?.[0]?.kit ?? NONE_KIT
+
+  // 나를 때리는 공격자 목록 — 방어킷과 무관 → 1회 구성 (방어킷 변경 시 incomingSim만 재계산)
+  const incomingGroups = useMemo(() => {
+    const st = setting === 'auto' ? stageEff : gearLevelCount(gearEff)
+    if (setting === 'manual' && oppType === 'single') {
+      const og = oppGear ?? fullGear(oppSlug, tier)
+      const atk = attackerFrom(oppSlug, og, expectedAtkKit(tierView(oppSlug, tier).attackKits), tier, true)
+      const skills = getSkills(oppSlug, '1st').filter((s) => s.cls !== 'grab')
+      return { mode: 'single' as const, single: [{ w: 1, atk, skills, slug: oppSlug }] as IncomingAttacker[] }
+    }
+    const dealer = incomingField('dealer', st, tier, slug)
+    const tank = [...incomingField('tankArmor', st, tier, slug), ...incomingField('tankEvade', st, tier, slug)]
+    return { mode: 'field' as const, dealer, tank, all: [...dealer, ...tank] }
+  }, [setting, oppType, oppSlug, oppGear, stageEff, gearEff, slug, tier])
+
+  // 피격 패널 (선택 방어킷 vs 킷 없음) — 종합/딜러/탱커 or 1:1
+  const defPanels = useMemo<DefPanelData[]>(() => {
+    const myDef = defenderFrom(slug, gearEff, selectedDefKit, tier)
+    const myHp = hpFrom(slug, gearEff, selectedDefKit, tier)
+    const noDef = defenderFrom(slug, gearEff, NONE_KIT, tier)
+    const noHp = hpFrom(slug, gearEff, NONE_KIT, tier)
+    const nChars = (atks: IncomingAttacker[]) => new Set(atks.map((a) => a.slug)).size
+    const defNote = '각 상대: 부위별 착용률(주간 통계)로 가중한 기대 세팅을 나와 같은 게임 시점까지 착용\n공격킷은 착용 분포대로 복용한 것으로 가정 (한타 맞교환)'
+    const mk = (title: string, sub: string, tone: Tone, atks: IncomingAttacker[], line?: string): DefPanelData => ({
+      title, sub, tone, myHp, noHp,
+      res: incomingSim(atks, myDef),
+      noRes: incomingSim(atks, noDef),
+      stat: line ? { line, tip: `${line}\n\n${defNote}` } : undefined,
+    })
+    if (incomingGroups.mode === 'single') {
+      const name = characters.find((c) => c.slug === oppSlug)?.name ?? ''
+      return [mk(`vs ${name}`, '1:1 직접 세팅', 'single', incomingGroups.single)]
+    }
+    const { dealer, tank, all } = incomingGroups
+    const basis = (atks: IncomingAttacker[]) => `공격자 ${nChars(atks)}명 · 입장률 가중 · 공격킷 복용 가정`
+    return [
+      mk('종합', '실전 평균 전체', 'overall', all, basis(all)),
+      mk('vs 딜러', '공격형 목걸이 상대가 때림', 'dealer', dealer, basis(dealer)),
+      mk('vs 탱커', '방어형 목걸이 상대가 때림', 'tank', tank, basis(tank)),
+    ]
+  }, [incomingGroups, slug, gearEff, selectedDefKit, tier, oppSlug])
 
   // 필드 가중치 요약: 입장률·킷분포에서 유도된 각 그룹의 비중 (패널 stat + 계산 설명 공용)
   const shares = useMemo(() => {
@@ -483,7 +635,7 @@ export default function App() {
     const tot = dW + aW + eW || 1
     const tankW = aW + eW || 1
     const pctS = (x: number) => `${Math.round(x * 100)}%`
-    const settingNote = '각 상대의 세팅: 부위별 착용률(이 티어 주간 통계)로 가중한 기대 세팅을\n랭커 구매 순서에 따라 나와 같은 게임 시점까지 착용한 상태'
+    const settingNote = '각 상대의 세팅: 부위별 착용률(이 티어 주간 통계)로 가중한 기대 세팅을\n랭커 구매 순서에 따라 나와 같은 게임 시점까지 착용한 상태\n방어킷은 착용 분포대로 복용 가정'
     const splitNote = '각 캐릭터는 목걸이 착용 분포(공격형:방어형)대로 딜러/탱커에 비율로 나눠 반영\n→ 한 캐릭터가 딜러와 탱커 양쪽에 걸칠 수 있음'
     return [
       {
@@ -689,6 +841,23 @@ export default function App() {
             onChange={setMyGear}
             title="내 장비"
             action={{ label: '대세 세팅 ↺', onClick: () => setMyGear(autoGear(slug, maxStage, tier)) }}
+            footer={
+              <div className="gp-row dk">
+                <span className="gp-slot">방어킷</span>
+                <select
+                  className="gp-item"
+                  value={kitSig(selectedDefKit)}
+                  onChange={(e) => setSelDefKitSig(e.target.value)}
+                  title="내 방어킷 — 피격 결과에 반영"
+                >
+                  {defOptions.map((k) => (
+                    <option key={kitSig(k)} value={kitSig(k)}>
+                      {k.name === '킷 없음' ? '킷 없음' : `${defKitName(k)} (${kitStat(k)})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            }
           />
           <div className="panel opp">
             <div className="gp-head">
@@ -828,11 +997,11 @@ export default function App() {
       {/* 방어킷 — 받는 피해 기준 생존 사이클 (필드 모드 전용) */}
       {fieldMode && defRank && (
         <>
-        <SecHead title="방어킷 추천" sub="상대 공격을 오래 버티게 해주는 킷 — 받는 피해로 생존을 계산" />
+        <SecHead title="방어킷 추천" sub="상대 공격을 오래 버티게 해주는 킷 — 클릭해 내 방어킷 선택 (아래 피격 결과에 반영)" />
         <section className="panel kits def">
           <div className="kits-head">
             <span className="kh-legend">
-              숫자 = 상대의 <b>사이클+궁을 버티는 횟수</b> (높을수록 오래 생존) · ★ 종합 최적 · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)
+              숫자 = 상대의 <b>사이클+궁을 버티는 횟수</b> (높을수록 오래 생존) · ★ 종합 최적 · <em className="t-dealer">딜러</em> <em className="t-tank">탱커</em> (●=1위)
             </span>
           </div>
           <div className="kit-chips">
@@ -840,26 +1009,26 @@ export default function App() {
               const sig = kitSig(kit)
               const none = kit.name === '킷 없음'
               const gain = !none && defNoneTotal > 0 && Number.isFinite(total) ? Math.round((total / defNoneTotal - 1) * 100) : 0
-              const surv = per.map((v, i) => `· ${FIELD_LABELS[i]} 공격을 ${Number.isFinite(v) ? v.toFixed(1) : '∞'}번 버팀`).join('\n')
+              const surv = per.map((v, i) => `· ${DEF_FIELD_LABELS[i]} 공격을 ${Number.isFinite(v) ? v.toFixed(1) : '∞'}번 버팀`).join('\n')
               const head = `${defKitName(kit)} · ${kitStat(kit)}`
               const explain = '각 상대가 한 사이클+궁을 온전히 맞혀 나를 처치하는 데 필요한 횟수\n(예: 1.0 = 딱 한 번에 죽음, 2.0 = 두 번 버팀 · 높을수록 튼튼)'
               const tip = none
                 ? `${head}\n\n${explain}\n${surv}`
                 : `${head}\n\n${explain}\n${surv}\n\n킷 없음 대비 생존력 ${gain >= 0 ? '+' : ''}${gain}%`
               return (
-                <div key={sig} className="chip static" title={tip}>
+                <button key={sig} className={sig === kitSig(selectedDefKit) ? 'chip on' : 'chip'} onClick={() => setSelDefKitSig(sig)} title={tip}>
                   {sig === defBestSig && <i>★</i>}
                   {kit.icon && <img src={itemIcon(kit.icon)} alt="" loading="lazy" onError={hideOnError} />}
                   <b>{defKitName(kit)}</b>
                   <span className="tri">
                     {per.map((v, i) => (
-                      <span key={i} className={`tnum ${TONES[i]}`}>
+                      <span key={i} className={`tnum ${DEF_TONES[i]}`}>
                         {defBestPerTarget[i] === sig && <em>●</em>}{Number.isFinite(v) ? v.toFixed(1) : '∞'}
                       </span>
                     ))}
                   </span>
                   {usageBadge(defUsage, kit)}
-                </div>
+                </button>
               )
             })}
           </div>
@@ -882,16 +1051,29 @@ export default function App() {
         </div>
       )}
 
-      {/* 결과 */}
+      {/* 결과 · 공격 */}
       <SecHead
-        title="예상 전투 결과"
+        title="예상 전투 결과 · 공격"
         sub={fieldMode
-          ? '지금 세팅으로 상대 유형별 한타 딜(궁 제외/포함)과 처치까지 걸리는 컷'
+          ? '내가 때릴 때 — 상대 유형별 한타 딜과 처치 컷 · 상대는 방어킷 복용 가정'
           : '선택한 상대와 1:1 — 스킬별 데미지와 처치 컷'}
       />
       <section className={fieldMode ? 'results five' : 'results'}>
         {sims.map((s, i) => (
           <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat} />
+        ))}
+      </section>
+
+      {/* 결과 · 방어 (피격) */}
+      <SecHead
+        title="예상 피격 결과 · 방어"
+        sub={fieldMode
+          ? '상대가 나를 때릴 때 — 선택한 방어킷 기준 받는 피해와 버티는 컷 · 상대는 공격킷 복용 가정'
+          : '상대가 나를 때릴 때 — 선택한 방어킷 기준 1:1 받는 피해'}
+      />
+      <section className={defPanels.length > 1 ? 'results five' : 'results'}>
+        {defPanels.map((p, i) => (
+          <DefensePanel key={i} {...p} />
         ))}
       </section>
 
@@ -919,7 +1101,7 @@ export default function App() {
               <div className="m-step">
                 <em>2</em>
                 <b>상대는 뭘 입었나</b>
-                <p>부위마다 이번 주 <u>{TIER_LABELS[tier]} 티어</u>에서 실제 착용된 비율 그대로 섞은 <u>기대 세팅</u>을 입은 것으로 봅니다. 1위 아이템만 고르는 게 아니라 착용 분포 전체를 반영합니다.</p>
+                <p>부위마다 이번 주 <u>{TIER_LABELS[tier]} 티어</u>에서 실제 착용된 비율 그대로 섞은 <u>기대 세팅</u>을 입은 것으로 봅니다. 1위 아이템만 고르는 게 아니라 착용 분포 전체를 반영합니다. 장비뿐 아니라 <u>방어킷·공격킷</u>도 착용 분포대로 섞어 반영합니다(공격 시 상대 방어킷, 피격 시 상대 공격킷).</p>
                 <p className="num">
                   예) {char.name} 손 슬롯:<br />
                   {(() => {
@@ -944,7 +1126,7 @@ export default function App() {
               </div>
             </div>
             <p className="m-note">
-              단순화한 부분: 부위별 착용률 상위 4개까지만 반영(그 아래 꼬리는 절사) · 부위 방어%의 평균은 선형 근사 · 각 캐릭터는 목걸이 착용 분포대로 딜러/탱커로 비율 분할 · 구매 순서는 랭커 데이터로 전 티어 공용 · 방어·회피 변환은 근사치
+              단순화한 부분: 부위별 착용률 상위 4개까지만 반영(그 아래 꼬리는 절사) · 부위 방어%의 평균은 선형 근사 · 각 캐릭터는 목걸이 착용 분포대로 딜러/탱커로 비율 분할 · 구매 순서는 랭커 데이터로 전 티어 공용 · 방어·회피 변환은 근사치 · 킷은 양쪽 모두 복용한 상태의 맞교환 가정
             </p>
           </>
         )}
