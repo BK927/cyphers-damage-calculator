@@ -379,6 +379,29 @@ export default function App() {
     }
   }, [fieldMode, targets])
 
+  // 실전 평균 상대의 프로필 — 평균 방어/회피/HP + 입장률 상위 얼굴 (수동 모드 상대 패널용)
+  const fieldProfile = useMemo(() => {
+    if (!fieldMode) return null
+    const all = mergeFields(...targets)
+    if (all.kind !== 'field' || !all.items.length) return null
+    let r = 0, e = 0, h = 0
+    const byChar = new Map<string, number>()
+    for (const it of all.items) {
+      r += it.def.reduction * it.w
+      e += it.def.evade * it.w
+      h += it.hp * it.w
+      if (it.slug) byChar.set(it.slug, (byChar.get(it.slug) ?? 0) + it.w)
+    }
+    const W = all.totalW
+    const roster = [...byChar.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, w]) => ({ slug: s, name: characters.find((c) => c.slug === s)?.name ?? s, pct: w / W }))
+    return {
+      reduction: r / W, evade: e / W, hp: h / W, roster,
+      pen: attackerFrom(slug, gearEff, selectedKit, tier).penetration,
+    }
+  }, [fieldMode, targets, slug, gearEff, selectedKit, tier])
+
   // 결과 패널 구성: 필드 모드=종합/딜러/탱커/방탱/회탱, 단일=1:1
   // 각 패널의 stat = 이 상대 그룹의 비중이 어떤 통계에서 유도됐는지
   const panels = useMemo(() => {
@@ -597,7 +620,47 @@ export default function App() {
               </span>
             </div>
             {oppType === 'field' ? (
-              <p className="opp-note">입장률로 가중한 상대 전체(딜러/탱커 구분) · 내 구매 수({gearLevelCount(gearEff)})에 맞춘 진행도</p>
+              <div className="opp-field">
+                <p className="opp-note">입장률로 가중한 상대 전체 · 내 구매 수({gearLevelCount(gearEff)})에 맞춘 진행도</p>
+                {shares && (
+                  <div className="field-bar" title="입장률 가중 · 목걸이/방어킷 착용 분포로 분할">
+                    {([
+                      ['dealer', shares.dealer, '딜러'],
+                      ['armor', shares.tank * shares.armorInTank, '방탱'],
+                      ['evade', shares.tank * shares.evadeInTank, '회탱'],
+                    ] as const).map(([tone, frac, label]) => (
+                      <span key={tone} className={`fb-seg ${tone}`} style={{ flexGrow: Math.max(frac, 0.0001) }} title={`${label} ${Math.round(frac * 100)}%`}>
+                        <span className="fb-lbl">{frac >= 0.12 ? `${label} ${Math.round(frac * 100)}%` : `${Math.round(frac * 100)}%`}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {fieldProfile && (
+                  <>
+                    <div className="opp-stats">
+                      <div>
+                        <span>평균 방어</span>
+                        <b>{Math.round(fieldProfile.reduction * 100)}%</b>
+                        <em title={`내 관통 ${Math.round(fieldProfile.pen * 100)}% 적용 후 실효 방어`}>관통 후 {Math.round(fieldProfile.reduction * (1 - fieldProfile.pen) * 100)}%</em>
+                      </div>
+                      <div><span>평균 회피</span><b>{fmt(fieldProfile.evade)}</b><em>내 치명과 대결</em></div>
+                      <div><span>평균 HP</span><b>{fmt(fieldProfile.hp)}</b><em>처치까지 기준</em></div>
+                    </div>
+                    <div className="opp-roster">
+                      <span className="lbl">만나는 상대 전원 <small>{fieldProfile.roster.length}명 · 입장률 가중 비중</small></span>
+                      <div className="roster">
+                        {fieldProfile.roster.map((t) => (
+                          <span key={t.slug} className="rst" title={`${t.name} · 필드의 ${(t.pct * 100).toFixed(2)}%`}>
+                            <img src={iconUrl(t.slug)} alt="" loading="lazy" onError={hideOnError} />
+                            <em className="nm">{t.name}</em>
+                            <em className="pc">{t.pct * 100 < 0.05 ? '<0.1' : (t.pct * 100).toFixed(1)}%</em>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             ) : (
               <>
                 <div className="gp-row">
@@ -723,8 +786,8 @@ export default function App() {
         </section>
       )}
 
-      {/* 필드 구성 스택 바 — 입장률·목걸이·방어킷 분포로 분할 */}
-      {fieldMode && shares && (
+      {/* 필드 구성 스택 바 — 입장률·목걸이·방어킷 분포로 분할 (수동 모드에선 상대 세팅 패널에 표시) */}
+      {fieldMode && shares && setting === 'auto' && (
         <div className="field-bar" title="입장률 가중 · 목걸이/방어킷 착용 분포로 분할">
           {([
             ['dealer', shares.dealer, '딜러'],

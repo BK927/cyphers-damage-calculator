@@ -155,6 +155,29 @@
 .gp-step .lv.on { color: var(--accent-2); }
 .opp-note { font-size: 11px; color: var(--text-3); line-height: 1.5; margin: 4px 0; }
 
+/* 실전 평균 상대 프로필 (수동 모드 상대 패널) */
+.opp-field { display: flex; flex-direction: column; gap: 12px; }
+.opp-field .field-bar { margin: 2px 0 0; }
+.opp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.opp-stats > div {
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--inset); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px;
+}
+.opp-stats span { font-size: 10.5px; color: var(--text-3); }
+.opp-stats b { font-family: var(--mono); font-size: 17px; font-weight: 600; color: var(--text); }
+.opp-stats em { font-style: normal; font-size: 10px; color: var(--text-3); }
+.opp-roster .lbl { display: block; font-size: 11px; color: var(--text-2); margin-bottom: 8px; }
+.opp-roster .lbl small { color: var(--text-3); font-size: 10px; }
+.opp-roster .roster {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 2px 14px;
+  max-height: 244px; overflow-y: auto; padding-right: 4px;
+  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+}
+.rst { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 2px 0; }
+.rst img { width: 18px; height: 18px; border-radius: 4px; object-fit: cover; background: var(--inset); border: 1px solid var(--line-2); flex-shrink: 0; }
+.rst .nm { font-style: normal; color: var(--text-2); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rst .pc { font-style: normal; font-family: var(--mono); color: var(--text-3); font-size: 10.5px; flex-shrink: 0; }
+
 /* ---------- Kits ---------- */
 .kits { padding: 15px 18px; }
 .kits-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
