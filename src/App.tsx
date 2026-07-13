@@ -5,6 +5,7 @@ import { iconNum } from './data/icons'
 import { buildBySlug } from './data/buildorder'
 import {
   attackKitOptions,
+  defenseKitOptions,
   kitSig,
   metaScrapedAt,
   TIER_LABELS,
@@ -20,8 +21,10 @@ import {
   fullGear,
   gearSlotsOf,
   hasTwoModes,
+  kitUsage,
   maxStageOf,
   mergeFields,
+  rankDefKits,
   rankKits,
   simulate,
   singleTarget,
@@ -53,6 +56,8 @@ function dominated(k: KitOption): boolean {
   )
 }
 const atkOptions: KitOption[] = [NONE_KIT, ...attackKitOptions.filter((k) => !dominated(k))]
+// 방어킷 후보 — hp/회피/방어% 축이라 dominated 필터는 부적합
+const defOptions: KitOption[] = [NONE_KIT, ...defenseKitOptions]
 
 const CLS_LABEL: Record<SkillClass, string> = { basic: '평타', skill: '스킬', grab: '잡기', ult: '궁' }
 const SLOT_SHORT: Record<string, string> = {
@@ -79,6 +84,14 @@ function kitName(k: KitOption): string {
   if (atk) return '파이크'
   if (crit) return '이펙트'
   return k.name
+}
+// 킷 착용률 뱃지 (필드 전체·입장률 가중) — NONE_KIT은 뱃지 없음
+function usageBadge(usage: Map<string, number>, k: KitOption) {
+  if (k.name === '킷 없음') return null
+  const u = usage.get(kitSig(k)) ?? 0
+  if (u <= 0) return null
+  const txt = u < 0.005 ? '<1%' : `${Math.round(u * 100)}%`
+  return <span className="use" title="필드 전체 착용률 (입장률 가중)">{txt}</span>
 }
 function kitStat(k: KitOption): string {
   const p: string[] = []
@@ -318,23 +331,50 @@ export default function App() {
     if (key === 'tank') return (per[1] ?? 0) + (per[2] ?? 0)
     return per.reduce((a, b) => a + b, 0) // all
   }
+  // 킷 착용률 (필드 전체·입장률 가중, 티어별 캐싱)
+  const atkUsage = useMemo(() => kitUsage(tier, 'attack'), [tier])
+  const defUsage = useMemo(() => kitUsage(tier, 'defense'), [tier])
   const sortedKits = useMemo(() => {
+    if (sortKey === 'usage') {
+      return [...kitRank].sort((a, b) => (atkUsage.get(kitSig(b.kit)) ?? 0) - (atkUsage.get(kitSig(a.kit)) ?? 0))
+    }
     if (sortKey === 'all') return kitRank
     return [...kitRank].sort((a, b) => kitScore(b.per, sortKey) - kitScore(a.per, sortKey))
-  }, [kitRank, sortKey])
+  }, [kitRank, sortKey, atkUsage])
+
+  // 방어킷 추천 — 필드가 내게 넣는 피해로 생존 사이클 수 산정 (필드 모드 전용)
+  const defRank = useMemo(() => {
+    if (!fieldMode) return null
+    const st = setting === 'auto' ? stageEff : gearLevelCount(gearEff)
+    return rankDefKits(slug, gearEff, defOptions, st, tier)
+  }, [fieldMode, slug, gearEff, setting, stageEff, tier])
+  const defBestSig = defRank?.[0] ? kitSig(defRank[0].kit) : null
+  const defBestPerTarget = useMemo(
+    () => (defRank
+      ? [0, 1, 2].map((i) => {
+          let best = defRank[0]
+          for (const s of defRank) if (s.per[i] > (best?.per[i] ?? 0)) best = s
+          return best ? kitSig(best.kit) : null
+        })
+      : [null, null, null]),
+    [defRank],
+  )
+  const defNoneTotal = defRank?.find((s) => s.kit.name === '킷 없음')?.total ?? 0
 
   // 필드 가중치 요약: 입장률·킷분포에서 유도된 각 그룹의 비중 (패널 stat + 계산 설명 공용)
   const shares = useMemo(() => {
     if (!fieldMode) return null
     const [d, a, e] = targets
     const w = (t: Target) => (t.kind === 'field' ? t.totalW : 0)
-    const nChars = (t: Target) => (t.kind === 'field' ? new Set(t.items.map((i) => i.slug)).size : 1)
+    // 비율 분할이라 한 캐릭이 딜러·탱커에 동시에 걸칠 수 있음 → 가중치>0인 고유 캐릭 수
+    const slugsOf = (...ts: Target[]) =>
+      new Set(ts.flatMap((t) => (t.kind === 'field' ? t.items.map((i) => i.slug) : [])))
     const dW = w(d), aW = w(a), eW = w(e)
     const tot = dW + aW + eW || 1
     return {
       dealer: dW / tot, tank: (aW + eW) / tot,
       armorInTank: aW / (aW + eW || 1), evadeInTank: eW / (aW + eW || 1),
-      nDealers: nChars(d), nTanks: nChars(a),
+      nDealers: slugsOf(d).size, nTanks: slugsOf(a, e).size,
     }
   }, [fieldMode, targets])
 
@@ -348,31 +388,34 @@ export default function App() {
     const [d, a, e] = targets
     const w = (t: Target) => (t.kind === 'field' ? t.totalW : 0)
     const nChars = (t: Target) => (t.kind === 'field' ? new Set(t.items.map((i) => i.slug)).size : 1)
+    const nDistinct = (...ts: Target[]) =>
+      new Set(ts.flatMap((t) => (t.kind === 'field' ? t.items.map((i) => i.slug) : []))).size
     const dW = w(d), aW = w(a), eW = w(e)
     const tot = dW + aW + eW || 1
     const tankW = aW + eW || 1
     const pctS = (x: number) => `${Math.round(x * 100)}%`
     const settingNote = '각 상대의 세팅: 부위별 착용률(이 티어 주간 통계)로 가중한 기대 세팅을\n랭커 구매 순서에 따라 나와 같은 게임 시점까지 착용한 상태'
+    const splitNote = '각 캐릭터는 목걸이 착용 분포(공격형:방어형)대로 딜러/탱커에 비율로 나눠 반영\n→ 한 캐릭터가 딜러와 탱커 양쪽에 걸칠 수 있음'
     return [
       {
         target: mergeFields(d, a, e), tone: 'overall' as Tone, title: '종합', sub: '실전 평균 전체',
         stat: {
           line: `입장률 가중 — 딜러 ${pctS(dW / tot)} · 방탱 ${pctS(aW / tot)} · 회탱 ${pctS(eW / tot)}`,
-          tip: `상대 = 이 티어에 입장한 전체 캐릭터 ${nChars(d) + nChars(a)}명을 입장률로 가중한 기대값\n딜러/탱커 구분: 목걸이 착용률 1위가 공격형이냐 방어형이냐\n탱커 안의 방탱/회탱 비율: 각 탱커의 방어킷 착용 분포\n\n${settingNote}`,
+          tip: `상대 = 이 티어에 입장한 전체 캐릭터 ${nDistinct(d, a, e)}명을 입장률로 가중한 기대값\n${splitNote}\n탱커 안의 방탱/회탱 비율: 각 탱커의 방어킷 착용 분포\n\n${settingNote}`,
         } as StatBasis | undefined,
       },
       {
-        target: d, tone: 'dealer' as Tone, title: 'vs 딜러', sub: '공격형 목걸이 상대',
+        target: d, tone: 'dealer' as Tone, title: 'vs 딜러', sub: '공격형 목걸이 비중',
         stat: {
           line: `필드의 ${pctS(dW / tot)} · ${nChars(d)}명 — 입장률 통계 가중`,
-          tip: `이 티어 입장률에서 딜러(공격형 목걸이 1위)로 분류된 ${nChars(d)}명\n각자의 입장률만큼 가중해 평균\n\n${settingNote}`,
+          tip: `공격형 목걸이 착용 비율만큼 딜러로 반영된 ${nChars(d)}명\n각자 (입장률 × 딜러 비율)만큼 가중해 평균 · 목걸이는 공격형 후보만 반영\n\n${settingNote}`,
         } as StatBasis | undefined,
       },
       {
         target: mergeFields(a, e), tone: 'tank' as Tone, title: 'vs 탱커', sub: '방탱+회탱 종합',
         stat: {
           line: `필드의 ${pctS(tankW / tot)} · ${nChars(a)}명 — 입장률 통계 가중`,
-          tip: `이 티어 입장률에서 탱커(방어형 목걸이 1위)로 분류된 ${nChars(a)}명\n아래 방탱/회탱을 방어킷 착용 비율로 합친 것과 동일\n\n${settingNote}`,
+          tip: `방어형 목걸이 착용 비율만큼 탱커로 반영된 ${nChars(a)}명\n아래 방탱/회탱을 방어킷 착용 비율로 합친 것과 동일 · 목걸이는 방어형 후보만 반영\n\n${settingNote}`,
         } as StatBasis | undefined,
       },
       {
@@ -594,7 +637,7 @@ export default function App() {
           {fieldMode && (
             <span className="kh-sort">
               <span className="lbl">정렬</span>
-              {([['all', '종합'], ['dealer', '딜러'], ['tank', '탱커'], ['armor', '방탱'], ['evade', '회탱']] as const).map(([v, label]) => (
+              {([['all', '종합'], ['dealer', '딜러'], ['tank', '탱커'], ['armor', '방탱'], ['evade', '회탱'], ['usage', '착용률']] as const).map(([v, label]) => (
                 <button
                   key={v}
                   className={`${kitSort === v ? 'on' : ''} ${v}`}
@@ -629,11 +672,62 @@ export default function App() {
                 ) : (
                   <span className="tri"><span className="tnum">{fmt(per[0])}</span></span>
                 )}
+                {usageBadge(atkUsage, kit)}
               </button>
             )
           })}
         </div>
       </section>
+
+      {/* 방어킷 — 받는 피해 기준 생존 사이클 (필드 모드 전용) */}
+      {fieldMode && defRank && (
+        <section className="panel kits def">
+          <div className="kits-head">
+            <span className="kh-title">방어킷</span>
+            <span className="kh-legend">
+              받는 피해 기준 생존 사이클 · ★ 종합 최적 · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)
+            </span>
+          </div>
+          <div className="kit-chips">
+            {defRank.map(({ kit, per, total }) => {
+              const sig = kitSig(kit)
+              const none = kit.name === '킷 없음'
+              const gain = !none && defNoneTotal > 0 && Number.isFinite(total) ? Math.round((total / defNoneTotal - 1) * 100) : 0
+              const tip = none ? kitStat(kit) : `${kitStat(kit)}\n킷 없음 대비 생존 ${gain >= 0 ? '+' : ''}${gain}%`
+              return (
+                <div key={sig} className="chip static" title={tip}>
+                  {sig === defBestSig && <i>★</i>}
+                  {kit.icon && <img src={itemIcon(kit.icon)} alt="" loading="lazy" onError={hideOnError} />}
+                  <b>{kitName(kit)}</b>
+                  <span className="tri">
+                    {per.map((v, i) => (
+                      <span key={i} className={`tnum ${TONES[i]}`}>
+                        {defBestPerTarget[i] === sig && <em>●</em>}{Number.isFinite(v) ? v.toFixed(1) : '∞'}
+                      </span>
+                    ))}
+                  </span>
+                  {usageBadge(defUsage, kit)}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* 필드 구성 스택 바 — 입장률·목걸이·방어킷 분포로 분할 */}
+      {fieldMode && shares && (
+        <div className="field-bar" title="입장률 가중 · 목걸이/방어킷 착용 분포로 분할">
+          {([
+            ['dealer', shares.dealer, '딜러'],
+            ['armor', shares.tank * shares.armorInTank, '방탱'],
+            ['evade', shares.tank * shares.evadeInTank, '회탱'],
+          ] as const).map(([tone, frac, label]) => (
+            <span key={tone} className={`fb-seg ${tone}`} style={{ flexGrow: Math.max(frac, 0.0001) }} title={`${label} ${Math.round(frac * 100)}%`}>
+              <span className="fb-lbl">{frac >= 0.12 ? `${label} ${Math.round(frac * 100)}%` : `${Math.round(frac * 100)}%`}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* 결과 */}
       <section className={fieldMode ? 'results five' : 'results'}>
@@ -655,9 +749,9 @@ export default function App() {
               <div className="m-step">
                 <em>1</em>
                 <b>누구를 만나나</b>
-                <p>이번 주 <u>{TIER_LABELS[tier]} 티어</u> 입장 통계로 상대가 나올 확률을 정합니다. 많이 플레이된 캐릭터일수록 결과에 더 크게 반영됩니다.</p>
+                <p>이번 주 <u>{TIER_LABELS[tier]} 티어</u> 입장 통계로 상대가 나올 확률을 정합니다. 각 캐릭터는 <u>목걸이 착용 분포</u>대로 딜러/탱커에 비율로 나눠 반영하므로, 한 캐릭터가 양쪽에 걸칠 수 있습니다.</p>
                 {shares && (
-                  <p className="num">
+                  <p className="num" title="비율 분할이라 한 캐릭터가 딜러·탱커에 동시에 걸칠 수 있어, 명수는 가중치>0인 고유 캐릭터 수입니다">
                     딜러 {Math.round(shares.dealer * 100)}% ({shares.nDealers}명) · 탱커 {Math.round(shares.tank * 100)}% ({shares.nTanks}명)<br />
                     탱커 안에서 방어킷 착용 비율대로<br />방탱 {Math.round(shares.armorInTank * 100)}% : 회탱 {Math.round(shares.evadeInTank * 100)}%
                   </p>
@@ -691,7 +785,7 @@ export default function App() {
               </div>
             </div>
             <p className="m-note">
-              단순화한 부분: 부위별 착용률 상위 4개까지만 반영(그 아래 꼬리는 절사) · 부위 방어%의 평균은 선형 근사 · 딜러/탱커 구분은 목걸이 착용률 1위 기준 · 구매 순서는 랭커 데이터로 전 티어 공용 · 방어·회피 변환은 근사치
+              단순화한 부분: 부위별 착용률 상위 4개까지만 반영(그 아래 꼬리는 절사) · 부위 방어%의 평균은 선형 근사 · 각 캐릭터는 목걸이 착용 분포대로 딜러/탱커로 비율 분할 · 구매 순서는 랭커 데이터로 전 티어 공용 · 방어·회피 변환은 근사치
             </p>
           </>
         )}

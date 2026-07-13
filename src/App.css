@@ -194,6 +194,31 @@
 .chip b { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .chip.on b { color: var(--accent-2); }
 .chip span { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.chip.static { cursor: default; }
+.chip.static:hover { border-color: var(--line); }
+/* 착용률 뱃지 (필드 전체·입장률 가중) */
+.chip .use {
+  font-family: var(--mono); font-size: 10px; color: var(--text-3);
+  background: var(--panel-2); border-radius: 5px; padding: 1px 5px; margin-left: 1px;
+}
+.kh-sort button.on.usage { background: var(--text-3); border-color: var(--text-3); }
+
+/* ---------- Field composition bar ---------- */
+.field-bar {
+  display: flex; gap: 2px; height: 22px; border-radius: 7px; overflow: hidden; margin-bottom: 10px;
+}
+.field-bar .fb-seg {
+  display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden;
+}
+.field-bar .fb-seg.dealer { background: var(--dealer-weak); }
+.field-bar .fb-seg.armor { background: var(--tank-weak); }
+.field-bar .fb-seg.evade { background: var(--evadet-weak); }
+.field-bar .fb-lbl {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; white-space: nowrap; padding: 0 6px;
+}
+.field-bar .fb-seg.dealer .fb-lbl { color: var(--dealer); }
+.field-bar .fb-seg.armor .fb-lbl { color: var(--tank); }
+.field-bar .fb-seg.evade .fb-lbl { color: var(--evadet); }
 
 /* ---------- Results ---------- */
 .results { display: grid; gap: 10px; }
