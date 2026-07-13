@@ -225,19 +225,31 @@ function ResultPanel({
           <tr><th className="l">스킬</th><th>공식</th><th>데미지</th><th>HP%</th></tr>
         </thead>
         <tbody>
-          {sim.skills.map(({ skill, cls, damage }) => (
+          {sim.skills.map(({ skill, cls, damage, damageMin, damageMax }) => (
             <tr key={skill.name} className={cls}>
               <td className="l">
                 <i>{CLS_LABEL[cls]}</i>
                 {skill.name}
               </td>
               <td className="f">{formula(skill.hits)}</td>
-              <td className="d">{fmt(damage)}</td>
+              <td className="d">
+                {fmt(damage)}
+                {damageMax - damageMin > 1 && <em className="rng">{fmt(damageMin)}~{fmt(damageMax)}</em>}
+              </td>
               <td className="h">{pctHp(damage)}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {sim.cyclePlusUltMax - sim.cyclePlusUltMin > 1 && (
+        <div className="rp-range" title="치명·회피 대결에 따른 사이클+궁 데미지 범위 (최악 회피 ~ 최대 치명)">
+          <span className="lo">최악 <b>{fmt(sim.cyclePlusUltMin)}</b></span>
+          <span className="track">
+            <i style={{ left: `${Math.min(100, Math.max(0, ((sim.cyclePlusUlt - sim.cyclePlusUltMin) / (sim.cyclePlusUltMax - sim.cyclePlusUltMin)) * 100))}%` }} />
+          </span>
+          <span className="hi"><b>{fmt(sim.cyclePlusUltMax)}</b> 최대</span>
+        </div>
+      )}
       <div className="rp-sub">
         <span>궁 제외 <b>{fmt(sim.cycle)}</b></span>
         <span>궁 포함 <b>{fmt(sim.cyclePlusUlt)}</b></span>

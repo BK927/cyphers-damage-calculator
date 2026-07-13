@@ -375,23 +375,31 @@ export function singleTarget(oppSlug: string, oppGear: GearState, oppKit: KitOpt
 
 // ===== 데미지 계산 =====
 
-/** 스킬 1개(모든 타 합)의 기대 데미지 */
-export function skillDamage(skill: Skill, atk: Attacker, def: Defender): number {
+/** 스킬 1개의 데미지 — 기대/최악/최대 (치명·회피 대결의 분포) */
+export interface DmgParts { exp: number; min: number; max: number }
+export function skillDamageParts(skill: Skill, atk: Attacker, def: Defender): DmgParts {
   const boost = (atk.skillBoost[skill.name] ?? 0) / 100
   const armor = skill.coeff.대인 ?? 1
   let raw = 0
   for (const h of skill.hits) raw += h.fixed + h.percent * atk.attack
   const base = raw * armor * (1 + boost)
-  const afterDef = base * (1 - def.reduction * (1 - atk.penetration))
+  const afterDef = Math.max(0, base * (1 - def.reduction * (1 - atk.penetration)))
   const cf = critFactor(atk.crit, def.evade, atk.critDamage)
-  return Math.max(0, afterDef * cf.factor)
+  return { exp: afterDef * cf.factor, min: afterDef * cf.minMul, max: afterDef * cf.maxMul }
+}
+/** 스킬 1개의 기대 데미지 (랭킹용) */
+export function skillDamage(skill: Skill, atk: Attacker, def: Defender): number {
+  return skillDamageParts(skill, atk, def).exp
 }
 
-function evalSkill(skill: Skill, atk: Attacker, t: Target): number {
-  if (t.kind === 'single') return skillDamage(skill, atk, t.def)
-  let s = 0
-  for (const it of t.items) s += it.w * skillDamage(skill, atk, it.def)
-  return s / t.totalW
+function evalSkill(skill: Skill, atk: Attacker, t: Target): DmgParts {
+  if (t.kind === 'single') return skillDamageParts(skill, atk, t.def)
+  let exp = 0, min = 0, max = 0
+  for (const it of t.items) {
+    const d = skillDamageParts(skill, atk, it.def)
+    exp += it.w * d.exp; min += it.w * d.min; max += it.w * d.max
+  }
+  return { exp: exp / t.totalW, min: min / t.totalW, max: max / t.totalW }
 }
 export function targetHP(t: Target): number {
   if (t.kind === 'single') return t.hp
@@ -403,30 +411,56 @@ export function targetHP(t: Target): number {
 export interface SkillDamage {
   skill: Skill
   cls: SkillClass
-  damage: number
+  damage: number // 기대
+  damageMin: number
+  damageMax: number
 }
 export interface SimResult {
   skills: SkillDamage[]
   cycle: number // 평타+스킬 합 (잡기·궁 제외)
+  cycleMin: number
+  cycleMax: number
   grab: number // 잡기 합
-  ult: number // 최대 궁
+  ult: number // 최대 궁 (기대값 기준)
+  ultMin: number
+  ultMax: number
   cyclePlusGrab: number
   cyclePlusUlt: number
+  cyclePlusUltMin: number
+  cyclePlusUltMax: number
   hp: number
 }
 
 export function simulate(slug: string, atk: Attacker, t: Target, mode: SkillMode = '1st'): SimResult {
-  const skills = getSkills(slug, mode).map(({ skill, cls }) => ({
-    skill,
-    cls,
-    damage: evalSkill(skill, atk, t),
-  }))
-  const cycle = skills
-    .filter((s) => s.cls === 'basic' || s.cls === 'skill')
-    .reduce((a, s) => a + s.damage, 0)
-  const grab = skills.filter((s) => s.cls === 'grab').reduce((a, s) => a + s.damage, 0)
-  const ult = skills.filter((s) => s.cls === 'ult').reduce((a, s) => Math.max(a, s.damage), 0)
-  return { skills, cycle, grab, ult, cyclePlusGrab: cycle + grab, cyclePlusUlt: cycle + ult, hp: targetHP(t) }
+  const skills = getSkills(slug, mode).map(({ skill, cls }) => {
+    const d = evalSkill(skill, atk, t)
+    return { skill, cls, damage: d.exp, damageMin: d.min, damageMax: d.max }
+  })
+  const isCycle = (s: SkillDamage) => s.cls === 'basic' || s.cls === 'skill'
+  const sum = (pred: (s: SkillDamage) => boolean, key: 'damage' | 'damageMin' | 'damageMax') =>
+    skills.filter(pred).reduce((a, s) => a + s[key], 0)
+  const cycle = sum(isCycle, 'damage')
+  const cycleMin = sum(isCycle, 'damageMin')
+  const cycleMax = sum(isCycle, 'damageMax')
+  const grab = sum((s) => s.cls === 'grab', 'damage')
+  // 궁: 기대값 최대인 궁 스킬을 채택, 그 최악/최대를 사용
+  const bestUlt = skills
+    .filter((s) => s.cls === 'ult')
+    .reduce<SkillDamage | null>((best, s) => (s.damage > (best?.damage ?? -1) ? s : best), null)
+  const ult = bestUlt?.damage ?? 0
+  const ultMin = bestUlt?.damageMin ?? 0
+  const ultMax = bestUlt?.damageMax ?? 0
+  return {
+    skills,
+    cycle, cycleMin, cycleMax,
+    grab,
+    ult, ultMin, ultMax,
+    cyclePlusGrab: cycle + grab,
+    cyclePlusUlt: cycle + ult,
+    cyclePlusUltMin: cycleMin + ultMin,
+    cyclePlusUltMax: cycleMax + ultMax,
+    hp: targetHP(t),
+  }
 }
 
 /** 공격킷 후보 랭킹 — 타깃별 (사이클+궁) 점수 + 합계 기준 내림차순 */

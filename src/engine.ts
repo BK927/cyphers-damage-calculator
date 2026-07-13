@@ -32,12 +32,15 @@ export interface CritResult {
   factor: number // 기대 배수 (확률 가중)
   pCrit: number // 치명타 확률 (0~1)
   pEvade: number // 회피 확률 (0~1)
+  minMul: number // 최악 케이스 배수 (회피 발동 or 평타)
+  maxMul: number // 최대 케이스 배수 (치명 발동 or 평타)
 }
 
 /**
  * 치명 스탯 ↔ 상대 회피 스탯의 단리 대결로 기대 배수를 구한다.
  * diff = 치명 − 회피.  양수면 그만큼(%) 치명타, 음수면 그만큼(%) 회피.
  * critDamage(치명 피해량)는 치명타 배율(1.3)에 가산된다.
+ * 결과는 두 경우의 확률 분포 → 최악(minMul)/최대(maxMul) 배수도 함께 제공.
  */
 export function critFactor(
   critStat: number,
@@ -47,11 +50,23 @@ export function critFactor(
   const critMult = CRIT_MULTIPLIER + critDamage
   const diff = critStat - targetEvade
   if (diff >= 0) {
+    // 치명 우위: 평타(×1) 또는 치명(×critMult)
     const pCrit = Math.min(diff, 100) / 100
-    return { factor: (1 - pCrit) + pCrit * critMult, pCrit, pEvade: 0 }
+    return {
+      factor: (1 - pCrit) + pCrit * critMult,
+      pCrit, pEvade: 0,
+      minMul: pCrit >= 1 ? critMult : 1, // 확정 치명이면 최악도 치명
+      maxMul: pCrit > 0 ? critMult : 1,
+    }
   }
+  // 회피 우위: 평타(×1) 또는 회피(×0.4)
   const pEvade = Math.min(-diff, 100) / 100
-  return { factor: (1 - pEvade) + pEvade * EVADE_MULTIPLIER, pCrit: 0, pEvade }
+  return {
+    factor: (1 - pEvade) + pEvade * EVADE_MULTIPLIER,
+    pCrit: 0, pEvade,
+    minMul: pEvade > 0 ? EVADE_MULTIPLIER : 1,
+    maxMul: pEvade >= 1 ? EVADE_MULTIPLIER : 1, // 확정 회피면 최대도 회피
+  }
 }
 
 export interface DamageBreakdown {
