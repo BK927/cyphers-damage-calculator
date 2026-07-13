@@ -212,6 +212,15 @@ function ResultPanel({
   const killTier = sim.cycle >= sim.hp ? 'noult' : sim.cyclePlusUlt >= sim.hp ? 'ult' : 'none'
   const bigTip = `사이클 ${fmt(sim.cycle)} + 궁 ${fmt(ult)} = ${fmt(sim.cyclePlusUlt)}\n상대 평균 HP ${fmt(sim.hp)} → ${kills}번 처치`
   const killTip = killTier === 'noult' ? '궁 없이 한 사이클에 처치 (최상)' : killTier === 'ult' ? '궁 포함 한 사이클에 처치' : undefined
+  // 사이클+궁 데미지 범위 + 각 케이스의 컷(원킬) 여부
+  const rMin = sim.cyclePlusUltMin, rMax = sim.cyclePlusUltMax
+  const hasRange = rMax - rMin > 1
+  const clampPct = (x: number) => Math.min(100, Math.max(0, x))
+  const span = rMax - rMin || 1
+  const expPos = clampPct(((sim.cyclePlusUlt - rMin) / span) * 100)
+  const hpPct = clampPct(((sim.hp - rMin) / span) * 100) // 처치선(상대 HP) 위치
+  const worstKill = rMin >= sim.hp, bestKill = rMax >= sim.hp
+  const fmtCut = (dmg: number) => { const c = sim.hp / dmg; return c <= 9.99 ? c.toFixed(2) : '9+' }
   return (
     <div className={`rp ${tone}`}>
       <div className="rp-head">
@@ -252,13 +261,20 @@ function ResultPanel({
           ))}
         </tbody>
       </table>
-      {sim.cyclePlusUltMax - sim.cyclePlusUltMin > 1 && (
-        <div className="rp-range" title="치명·회피 대결에 따른 사이클+궁 데미지 범위 (최악 회피 ~ 최대 치명)">
-          <span className="lo">최악 <b>{fmt(sim.cyclePlusUltMin)}</b></span>
-          <span className="track">
-            <i style={{ left: `${Math.min(100, Math.max(0, ((sim.cyclePlusUlt - sim.cyclePlusUltMin) / (sim.cyclePlusUltMax - sim.cyclePlusUltMin)) * 100))}%` }} />
+      {hasRange && (
+        <div className="rp-range" title="치명·회피에 따른 사이클+궁 범위. 세로선=상대 HP(처치선), 오른쪽=원킬 구간. ✓=그 케이스에서 원킬">
+          <span className="lo">
+            <span className="dmg">최악 <b>{fmt(rMin)}</b></span>
+            <em className={worstKill ? 'cut kill' : 'cut'}>{worstKill && '✓ '}{fmtCut(rMin)}컷</em>
           </span>
-          <span className="hi"><b>{fmt(sim.cyclePlusUltMax)}</b> 최대</span>
+          <span className="track" style={{ background: `linear-gradient(90deg, var(--line-2) 0 ${hpPct}%, var(--role) ${hpPct}% 100%)` }}>
+            {hpPct > 1 && hpPct < 99 && <span className="hp" style={{ left: `${hpPct}%` }} />}
+            <i style={{ left: `${expPos}%` }} />
+          </span>
+          <span className="hi">
+            <span className="dmg"><b>{fmt(rMax)}</b> 최대</span>
+            <em className={bestKill ? 'cut kill' : 'cut'}>{bestKill && '✓ '}{fmtCut(rMax)}컷</em>
+          </span>
         </div>
       )}
       <div className="rp-sub">
