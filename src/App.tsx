@@ -208,7 +208,9 @@ function ResultPanel({
         <span className="rp-big" title={bigTip}>
           <b>{fmt(sim.cyclePlusUlt)}</b>
           <span className={killTier === 'none' ? 'rp-kill' : `rp-kill k-${killTier}`} title={killTip}>
-            {killTier === 'noult' && '✓ '}{kills}컷
+            {killTier === 'noult' && <em className="klabel">✓ 궁없이 </em>}
+            {killTier === 'ult' && <em className="klabel">궁포함 </em>}
+            {kills}컷
           </span>
         </span>
       </div>

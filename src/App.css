@@ -326,6 +326,8 @@
 .rp-kill.k-ult { background: var(--role-weak); color: var(--role); }
 /* 궁 없이 원킬 — 채운 역할색 칩 (더 우월) */
 .rp-kill.k-noult { background: var(--role); color: var(--bg); font-weight: 700; }
+/* 칩 안 라벨 (궁없이 / 궁포함) */
+.rp-kill .klabel { font-style: normal; font-size: 9.5px; font-weight: 600; opacity: 0.85; }
 
 .rp table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
 .rp th {
