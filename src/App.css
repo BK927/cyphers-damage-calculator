@@ -218,7 +218,7 @@
 .chip .tnum.armor { color: var(--tank); }
 .chip .tnum.evade { color: var(--evadet); }
 .chip .tnum em { font-style: normal; font-size: 7px; line-height: 1; }
-.chip b { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.chip b { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .chip.on b { color: var(--accent-2); }
 .chip span { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
 .chip.static { cursor: default; }
@@ -353,8 +353,14 @@
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; }
   .mode-right { width: 100%; margin-left: 0; }
-  .mode-right .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
-  .mode-right .seg button { white-space: nowrap; }
+  /* 티어 토글: 7개를 폭에 꽉 채워 브론즈까지 보이게 */
+  .mode-right .seg:not(.big) { width: 100%; }
+  .mode-right .seg:not(.big) button { flex: 1; padding: 6px 2px; font-size: 11px; white-space: nowrap; }
   .hero .seg.big { width: 100%; }
   .hero .seg.big button { flex: 1; }
+  /* 킷 칩: 이름 한 줄 유지 + 점수는 아래 줄로 */
+  .chip { width: 100%; flex-wrap: wrap; row-gap: 6px; }
+  .chip b { margin-right: auto; }
+  .chip .use { order: 2; }
+  .chip .tri { order: 3; flex-basis: 100%; justify-content: flex-start; gap: 14px; }
 }
