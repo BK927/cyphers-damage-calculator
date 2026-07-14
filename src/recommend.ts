@@ -700,6 +700,16 @@ export function optimizeUpgradeOrder(
   return steps
 }
 
+/** 강화 순서(공격)의 원킬 기준선 — 풀빌드 상대 필드의 평균 HP */
+export function upgradeTargetHp(slug: string, tier: Tier = '0'): number {
+  const refStage = maxStageOf(slug, tier)
+  return targetHP(mergeFields(
+    subFieldTarget('dealer', refStage, tier, slug),
+    subFieldTarget('tankArmor', refStage, tier, slug),
+    subFieldTarget('tankEvade', refStage, tier, slug),
+  ))
+}
+
 /** 주어진 강화 순서(랭커 빌드 등)를 그대로 재생해 각 시점 값 곡선을 계산 (비교용). */
 export function evalUpgradePath(
   slug: string,

@@ -324,6 +324,11 @@
 .upo-note b { color: var(--text-2); font-weight: 600; }
 .upo-hint { margin-left: auto; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
 
+/* 차트(좌) + 순서 리스트(우) */
+.upo-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 4px 16px; align-items: start; }
+.upo-left { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+@media (max-width: 760px) { .upo-body { grid-template-columns: 1fr; } }
+
 /* 값 곡선 차트 */
 .upo-chart { width: 100%; height: auto; display: block; }
 .upo-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
@@ -332,6 +337,8 @@
 .upo-line.eff { stroke: var(--gold); stroke-width: 2.5; }
 .upo-line.greedy { stroke: var(--accent-2); stroke-dasharray: 4 3; }
 .upo-line.rank { stroke: var(--text-3); stroke-width: 1.5; opacity: 0.75; }
+.upo-mark { stroke: var(--gold); stroke-width: 1; stroke-dasharray: 6 4; opacity: 0.65; }
+.upo-mark-lbl { fill: var(--gold); font-size: 9px; font-family: var(--mono); opacity: 0.9; }
 
 /* 범례 = 순서 선택 버튼 (평균 값 병기, 클릭 시 아래 표 전환) */
 .upo-legend { display: flex; flex-wrap: wrap; gap: 6px 8px; font-size: 11px; }
@@ -351,16 +358,19 @@
 .upo-leg b { color: var(--text); font-family: var(--mono); font-weight: 600; }
 .upo-leg-note { flex-basis: 100%; color: var(--text-3); font-size: 10px; }
 
-/* 단계 리스트 — 아이콘 + 코인 + 값(Δ) */
+/* 단계 리스트 — 단일 컬럼(순서 그대로), 아이콘 + 코인 + 값(Δ) */
 .upo-steps {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 3px 14px;
-  max-height: 264px; overflow-y: auto; padding: 2px 4px 2px 0;
+  display: flex; flex-direction: column;
+  max-height: 296px; overflow-y: auto; padding-right: 4px;
   scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
 }
 .upo-step {
-  display: grid; grid-template-columns: 20px 21px minmax(56px, auto) 1fr auto; align-items: center; gap: 7px;
-  font-size: 11.5px; padding: 3.5px 2px; border-bottom: 1px solid var(--line);
+  display: grid; grid-template-columns: 20px 21px 1fr auto auto; align-items: center; gap: 7px;
+  font-size: 11.5px; padding: 3.5px 4px 3.5px 2px; border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
 }
+.upo-step.mile { background: color-mix(in srgb, var(--gold) 8%, transparent); border-left-color: var(--gold); }
+.upo-step .nm .tag { margin-left: 7px; font-size: 9.5px; font-weight: 700; color: var(--gold); white-space: nowrap; }
 .upo-step em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; }
 .upo-step img { width: 21px; height: 21px; border-radius: 5px; background: var(--inset); border: 1px solid var(--line); }
 .upo-step .nm { color: var(--text-2); white-space: nowrap; }
