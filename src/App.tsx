@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { characters } from './data/characters'
 import { iconNum } from './data/icons'
@@ -494,7 +494,8 @@ function UpgradeChart({ curves, kind, marks = [], activeTone, hoverIdx, mileIdx 
         </g>
       ))}
       {series.map((s) => s.pts.length > 1 && (
-        <polyline key={s.tone} className={`upo-line ${s.tone}`}
+        <polyline key={s.tone}
+          className={`upo-line ${s.tone}${activeTone && s.tone !== activeTone ? ' dim' : ''}`}
           points={s.pts.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')} />
       ))}
       {/* 선택 순서의 구매 지점 — pts[0]=시작점이라 단계 i는 pts[i+1] */}
@@ -1048,47 +1049,50 @@ export default function App() {
               {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
               <span className="upo-hint">Y = {simView === 'attack' ? '한타 딜' : '생존 컷'} · X = 누적 코인</span>
             </div>
-            <div className="upo-body">
-              <div className="upo-left">
-                <UpgradeChart kind={upoKind} marks={upoMarks} activeTone={upoView} hoverIdx={upoHover} mileIdx={upoMileIdx} curves={[
-                  { tone: 'eff', steps: upgradeOrders.efficiency },
-                  { tone: 'greedy', steps: upgradeOrders.greedy },
-                  { tone: 'rank', steps: upgradeOrders.ranker },
-                ]} />
-                <div className="upo-legend">
-                  {([
-                    ['추천 (효율)', 'eff', upgradeOrders.efficiency],
-                    ['탐욕', 'greedy', upgradeOrders.greedy],
-                    ['랭커 실구매', 'rank', upgradeOrders.ranker],
-                  ] as [string, 'eff' | 'greedy' | 'rank', UpgradeStep[]][]).map(([label, tone, steps]) => (
-                    <button key={tone} className={`upo-leg ${tone} ${upoView === tone ? 'on' : ''}`} onClick={() => setUpoView(tone)}>
-                      {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 딜' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
-                    </button>
-                  ))}
-                  <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 오른쪽 순서가 바뀜</span>
-                </div>
-              </div>
-              <div className="upo-steps" onMouseLeave={() => setUpoHover(null)}>
-                {!upoSteps.length && <span className="upo-empty">데이터 없음</span>}
-                {upoSteps.map((s, i) => {
-                  const miles = upoMiles.get(i)
-                  const slots = gearSlotsOf(slug, tier)
-                  return (
-                    <div key={i} className={miles ? 'upo-step mile' : 'upo-step'}
+            {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔 */}
+            <div className="upo-road" onMouseLeave={() => setUpoHover(null)}>
+              {!upoSteps.length && <span className="upo-empty">데이터 없음</span>}
+              {upoSteps.map((s, i) => {
+                const miles = upoMiles.get(i)
+                const slots = gearSlotsOf(slug, tier)
+                return (
+                  <Fragment key={i}>
+                    <div className={miles ? 'upo-buy mile' : 'upo-buy'}
                       onMouseEnter={() => setUpoHover(i)}
-                      title={`${s.slot} ${s.level}강${miles ? ` — 이 구매로 ${miles.map((x) => x.label).join(' · ')} 달성` : ''}`}>
+                      title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`}>
                       <em>{i + 1}</em>
                       <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
-                      <span className={`nm ${UPO_TONE[s.slot] ?? ''}`}>
-                        {UPO_SHORT[s.slot] ?? s.slot} <b>{s.level}강</b>
-                        {miles?.map((x) => <span key={x.label} className={`tag ${x.tone}`}>✓ {x.label}</span>)}
+                      <span className="t">
+                        <b className={UPO_TONE[s.slot] ?? ''}>{UPO_SHORT[s.slot] ?? s.slot}{s.level}</b>
+                        <i>{upoVal(s.value, upoKind)}</i>
                       </span>
-                      <span className="coin">{fmt(s.coin)}<i>누적 {fmt(s.cumCoin)}</i></span>
-                      <span className="val">{upoVal(s.value, upoKind, 2)}<i className={s.gain >= 0 ? 'up' : 'down'}>{upoGain(s.gain, upoKind)}</i></span>
                     </div>
-                  )
-                })}
-              </div>
+                    {miles && (
+                      <div className={`upo-cut ${miles[0].tone}`}>
+                        {miles.map((x) => <b key={x.label} className={x.tone}>✓ {x.label}</b>)}
+                        <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인</small>
+                      </div>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </div>
+            <UpgradeChart kind={upoKind} marks={upoMarks} activeTone={upoView} hoverIdx={upoHover} mileIdx={upoMileIdx} curves={[
+              { tone: 'eff', steps: upgradeOrders.efficiency },
+              { tone: 'greedy', steps: upgradeOrders.greedy },
+              { tone: 'rank', steps: upgradeOrders.ranker },
+            ]} />
+            <div className="upo-legend">
+              {([
+                ['추천 (효율)', 'eff', upgradeOrders.efficiency],
+                ['탐욕', 'greedy', upgradeOrders.greedy],
+                ['랭커 실구매', 'rank', upgradeOrders.ranker],
+              ] as [string, 'eff' | 'greedy' | 'rank', UpgradeStep[]][]).map(([label, tone, steps]) => (
+                <button key={tone} className={`upo-leg ${tone} ${upoView === tone ? 'on' : ''}`} onClick={() => setUpoView(tone)}>
+                  {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 딜' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
+                </button>
+              ))}
+              <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 위 로드맵이 바뀜</span>
             </div>
           </section>
         </>

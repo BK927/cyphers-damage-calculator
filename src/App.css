@@ -324,11 +324,6 @@
 .upo-note b { color: var(--text-2); font-weight: 600; }
 .upo-hint { margin-left: auto; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
 
-/* 차트(좌) + 순서 리스트(우) */
-.upo-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 4px 16px; align-items: start; }
-.upo-left { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
-@media (max-width: 760px) { .upo-body { grid-template-columns: 1fr; } }
-
 /* 값 곡선 차트 */
 .upo-chart { width: 100%; height: auto; display: block; }
 .upo-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
@@ -337,6 +332,7 @@
 .upo-line.eff { stroke: var(--gold); stroke-width: 2.5; }
 .upo-line.greedy { stroke: var(--accent-2); stroke-dasharray: 4 3; }
 .upo-line.rank { stroke: var(--text-3); stroke-width: 1.5; opacity: 0.75; }
+.upo-line.dim { opacity: 0.18; } /* 선택 안 된 순서는 흐리게 */
 .upo-mark { stroke: var(--gold); stroke-width: 1; stroke-dasharray: 6 4; opacity: 0.65; }
 .upo-mark-lbl { fill: var(--gold); font-size: 9px; font-family: var(--mono); opacity: 0.9; }
 /* 선택 순서의 구매 지점 — 리스트 호버와 연동 */
@@ -365,43 +361,42 @@
 .upo-leg b { color: var(--text); font-family: var(--mono); font-weight: 600; }
 .upo-leg-note { flex-basis: 100%; color: var(--text-3); font-size: 10px; }
 
-/* 단계 리스트 — 단일 컬럼(순서 그대로), 아이콘 + 코인 + 값(Δ) */
-.upo-steps {
-  display: flex; flex-direction: column;
-  max-height: 296px; overflow-y: auto; padding-right: 4px;
-  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+/* 구매 로드맵 — 칩 흐름, 컷 달성이 페이즈 구분선 */
+.upo-road { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+.upo-buy {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--inset); border: 1px solid var(--line); border-radius: 9px;
+  padding: 5px 9px 5px 7px; cursor: default; transition: border-color 0.12s;
 }
-.upo-step {
-  display: grid; grid-template-columns: 20px 21px 1fr auto auto; align-items: center; gap: 7px;
-  font-size: 11.5px; padding: 3.5px 4px 3.5px 2px; border-bottom: 1px solid var(--line);
-  border-left: 2px solid transparent;
+.upo-buy:hover { border-color: var(--line-2); }
+.upo-buy.mile { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); background: color-mix(in srgb, var(--gold) 7%, var(--inset)); }
+.upo-buy em {
+  font-style: normal; font-family: var(--mono); font-size: 9.5px; color: var(--text-3);
+  min-width: 14px; text-align: right;
 }
-.upo-step.mile { background: color-mix(in srgb, var(--gold) 8%, transparent); border-left-color: var(--gold); }
-.upo-step .nm .tag { margin-left: 7px; font-size: 9.5px; font-weight: 700; color: var(--gold); white-space: nowrap; }
-.upo-step .nm .tag.dealer { color: var(--dealer); }
-.upo-step .nm .tag.armor { color: var(--tank); }
-.upo-step .nm .tag.evade { color: var(--evadet); }
-.upo-step:hover { background: color-mix(in srgb, var(--text) 4%, transparent); cursor: default; }
-.upo-step em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; }
-.upo-step img { width: 21px; height: 21px; border-radius: 5px; background: var(--inset); border: 1px solid var(--line); }
-.upo-step .nm { color: var(--text-2); white-space: nowrap; }
-.upo-step .nm b { font-weight: 600; color: var(--text); }
-.upo-step .nm.hp b { color: var(--accent-2); }
-.upo-step .nm.armor b { color: var(--tank); }
-.upo-step .nm.evade b { color: var(--evadet); }
-.upo-step .nm.atk b { color: var(--dealer); }
-.upo-step .coin {
-  font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; white-space: nowrap;
-  display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0;
+.upo-buy img { width: 24px; height: 24px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+.upo-buy .t { display: flex; flex-direction: column; gap: 0; line-height: 1.25; }
+.upo-buy .t b { font-size: 11.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.upo-buy .t b.hp { color: var(--accent-2); }
+.upo-buy .t b.armor { color: var(--tank); }
+.upo-buy .t b.evade { color: var(--evadet); }
+.upo-buy .t b.atk { color: var(--dealer); }
+.upo-buy .t i { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--text-3); white-space: nowrap; }
+
+/* 컷 달성 구분선 — 로드맵을 페이즈로 나눔 */
+.upo-cut {
+  flex-basis: 100%; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  font-size: 11px; margin: 2px 0;
 }
-.upo-step .coin i { font-style: normal; font-size: 8.5px; opacity: 0.75; }
-.upo-step .val {
-  font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text); text-align: right; white-space: nowrap;
-  display: inline-flex; align-items: baseline; gap: 5px;
-}
-.upo-step .val i { font-style: normal; font-size: 9px; font-weight: 400; }
-.upo-step .val i.up { color: #5ecf9e; }
-.upo-step .val i.down { color: var(--dealer); }
+.upo-cut::before, .upo-cut::after { content: ''; height: 1px; background: currentColor; opacity: 0.35; }
+.upo-cut::before { width: 18px; }
+.upo-cut::after { flex: 1; }
+.upo-cut b { font-weight: 700; white-space: nowrap; }
+.upo-cut b.gold, .upo-cut.gold { color: var(--gold); }
+.upo-cut b.dealer, .upo-cut.dealer { color: var(--dealer); }
+.upo-cut b.armor, .upo-cut.armor { color: var(--tank); }
+.upo-cut b.evade, .upo-cut.evade { color: var(--evadet); }
+.upo-cut small { font-size: 10px; color: var(--text-3); white-space: nowrap; }
 .upo-empty { font-size: 11px; color: var(--text-3); }
 
 /* ---------- Results ---------- */
