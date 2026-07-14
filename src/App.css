@@ -333,43 +333,55 @@
 .upo-line.greedy { stroke: var(--accent-2); stroke-dasharray: 4 3; }
 .upo-line.rank { stroke: var(--text-3); stroke-width: 1.5; opacity: 0.75; }
 
-/* 범례 (완성 값 병기) */
-.upo-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--text-3); }
-.upo-leg { display: inline-flex; align-items: center; gap: 6px; }
-.upo-leg::before { content: ''; width: 15px; height: 2.5px; border-radius: 2px; background: currentColor; flex-shrink: 0; }
+/* 범례 = 순서 선택 버튼 (평균 값 병기, 클릭 시 아래 표 전환) */
+.upo-legend { display: flex; flex-wrap: wrap; gap: 6px 8px; font-size: 11px; }
+.upo-leg {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 600; padding: 5px 10px;
+  background: var(--inset); border: 1px solid var(--line); border-radius: 8px; transition: 0.12s;
+}
+.upo-leg::before { content: ''; width: 14px; height: 2.5px; border-radius: 2px; background: currentColor; flex-shrink: 0; }
 .upo-leg.eff { color: var(--gold); }
 .upo-leg.greedy { color: var(--accent-2); }
 .upo-leg.rank { color: var(--text-3); }
-.upo-leg-avg { color: var(--text-3); }
+.upo-leg.on { border-color: currentColor; background: var(--panel); }
+.upo-leg:hover { border-color: var(--line-2); }
+.upo-leg.on:hover { border-color: currentColor; }
+.upo-leg-avg { color: var(--text-3); font-weight: 400; }
 .upo-leg b { color: var(--text); font-family: var(--mono); font-weight: 600; }
 .upo-leg-note { flex-basis: 100%; color: var(--text-3); font-size: 10px; }
 
-/* 추천 순서 (효율) — 칩 줄바꿈 */
-.upo-rec { display: flex; align-items: flex-start; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-.upo-rec-lbl {
-  flex-shrink: 0; display: inline-flex; flex-direction: column; gap: 1px;
-  font-size: 11.5px; font-weight: 600; color: var(--text-2); padding-top: 3px;
+/* 단계 리스트 — 아이콘 + 코인 + 값(Δ) */
+.upo-steps {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 3px 14px;
+  max-height: 264px; overflow-y: auto; padding: 2px 4px 2px 0;
+  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
 }
-.upo-rec-lbl em { font-style: normal; font-size: 9.5px; color: var(--gold); }
-.upo-seq { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
-.upo-chip {
-  flex-shrink: 0; display: inline-flex; align-items: baseline; gap: 3px;
-  font-size: 11.5px; color: var(--text-2); background: var(--inset);
-  border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; white-space: nowrap;
+.upo-step {
+  display: grid; grid-template-columns: 20px 21px minmax(56px, auto) 1fr auto; align-items: center; gap: 7px;
+  font-size: 11.5px; padding: 3.5px 2px; border-bottom: 1px solid var(--line);
 }
-.upo-chip em { font-style: normal; font-size: 9px; color: var(--text-3); font-family: var(--mono); }
-.upo-chip b { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--accent-2); }
-.upo-chip.hp { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
-.upo-chip.armor { border-color: color-mix(in srgb, var(--tank) 40%, var(--line)); }
-.upo-chip.armor b { color: var(--tank); }
-.upo-chip.evade { border-color: color-mix(in srgb, var(--evadet) 40%, var(--line)); }
-.upo-chip.evade b { color: var(--evadet); }
-.upo-chip.atk b { color: var(--dealer); }
-.upo-more, .upo-empty { font-size: 11px; color: var(--text-3); align-self: center; }
-
-@media (max-width: 560px) {
-  .upo-rec { flex-direction: column; gap: 6px; }
+.upo-step em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; }
+.upo-step img { width: 21px; height: 21px; border-radius: 5px; background: var(--inset); border: 1px solid var(--line); }
+.upo-step .nm { color: var(--text-2); white-space: nowrap; }
+.upo-step .nm b { font-weight: 600; color: var(--text); }
+.upo-step .nm.hp b { color: var(--accent-2); }
+.upo-step .nm.armor b { color: var(--tank); }
+.upo-step .nm.evade b { color: var(--evadet); }
+.upo-step .nm.atk b { color: var(--dealer); }
+.upo-step .coin {
+  font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; white-space: nowrap;
+  display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0;
 }
+.upo-step .coin i { font-style: normal; font-size: 8.5px; opacity: 0.75; }
+.upo-step .val {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text); text-align: right; white-space: nowrap;
+  display: inline-flex; align-items: baseline; gap: 5px;
+}
+.upo-step .val i { font-style: normal; font-size: 9px; font-weight: 400; }
+.upo-step .val i.up { color: #5ecf9e; }
+.upo-step .val i.down { color: var(--dealer); }
+.upo-empty { font-size: 11px; color: var(--text-3); }
 
 /* ---------- Results ---------- */
 .results { display: grid; gap: 10px; }
@@ -462,6 +474,17 @@
 .rp-sub .ke { margin-left: auto; }
 .rp-sub .ke .up { color: #5ecf9e; }
 .rp-sub .ke .down { color: #ec7a7a; }
+
+/* 궁 단독 원킬 뱃지 — exp=기대값 원킬(강조), max=치명 터지면 원킬(연하게) */
+.rp-osu {
+  font-size: 10.5px; font-weight: 600; white-space: nowrap; cursor: help;
+  padding: 2px 8px; border-radius: 999px;
+}
+.rp-osu.exp { color: #0e0a04; background: var(--gold); }
+.rp-osu.max { color: var(--gold); background: color-mix(in srgb, var(--gold) 14%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); }
+
+/* 스킬 표 원킬 셀 */
+.rp td.os { color: var(--gold); font-weight: 700; cursor: help; }
 
 /* 패널 근거: 상대 구성 한 줄 (헤더 바로 아래) */
 .rp-basis {

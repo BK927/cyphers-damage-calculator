@@ -247,6 +247,11 @@ function ResultPanel({
   const hpPct = clampPct(((sim.hp - rMin) / span) * 100) // 처치선(상대 HP) 위치
   const worstKill = rMin >= sim.hp, bestKill = rMax >= sim.hp
   const fmtCut = (dmg: number) => { const c = sim.hp / dmg; return c <= 9.99 ? c.toFixed(2) : '9+' }
+  // 궁 단독 원킬: exp=기대값으로도 원킬 / max=치명 최대치로만 원킬
+  const ultOS = sim.ult >= sim.hp ? 'exp' : sim.ultMax >= sim.hp ? 'max' : 'none'
+  const ultOSTip = ultOS === 'exp'
+    ? `궁 기대 데미지 ${fmt(sim.ult)} ≥ 상대 HP ${fmt(sim.hp)} — 궁 한 방에 처치`
+    : `치명 최대 궁 ${fmt(sim.ultMax)} ≥ 상대 HP ${fmt(sim.hp)} — 치명타가 터지면 궁 한 방`
   return (
     <div className={`rp ${tone}`}>
       <div className="rp-head">
@@ -282,7 +287,10 @@ function ResultPanel({
                 {fmt(damage)}
                 {damageMax - damageMin > 1 && <em className="rng">{fmt(damageMin)}~{fmt(damageMax)}</em>}
               </td>
-              <td className="h">{pctHp(damage)}</td>
+              <td className={damage >= sim.hp ? 'h os' : 'h'}
+                title={damage >= sim.hp ? '이 스킬 한 번으로 처치 (기대 데미지 ≥ 상대 HP)' : undefined}>
+                {damage >= sim.hp ? '원킬' : pctHp(damage)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -307,6 +315,9 @@ function ResultPanel({
         <span>궁 제외 <b>{fmt(sim.cycle)}</b></span>
         <span>궁 포함 <b>{fmt(sim.cyclePlusUlt)}</b></span>
         {sim.grab > 0 && <span>＋잡기 <b>{fmt(sim.cyclePlusGrab)}</b></span>}
+        {ultOS !== 'none' && (
+          <span className={`rp-osu ${ultOS}`} title={ultOSTip}>⚡ {ultOS === 'exp' ? '궁 원킬' : '치명시 궁 원킬'}</span>
+        )}
         <span className="ke">킷 효과 <b className={gain >= 0 ? 'up' : 'down'}>{gain >= 0 ? '+' : ''}{gain}%</b></span>
       </div>
     </div>
@@ -418,7 +429,11 @@ function SecHead({ title, sub }: { title: string; sub: string }) {
 }
 
 // 강화 순서 값 포맷 — defense=생존 컷, attack=한타 딜
-const upoVal = (v: number, kind: 'attack' | 'defense') => (kind === 'defense' ? `${v.toFixed(1)}컷` : fmt(v))
+const upoVal = (v: number, kind: 'attack' | 'defense', prec = 1) =>
+  kind === 'defense' ? `${v.toFixed(prec)}컷` : fmt(v)
+// 단계 이득(Δ) 포맷
+const upoGain = (g: number, kind: 'attack' | 'defense') =>
+  kind === 'defense' ? `${g >= 0 ? '+' : ''}${g.toFixed(2)}` : `${g >= 0 ? '+' : ''}${fmt(g)}`
 
 // 코인 가중 평균값(=값 곡선의 면적 ÷ 총코인) — 순서가 게임 전체에 걸쳐 얼마나 앞섰는지.
 // 종점(완성)은 세 순서 모두 같으므로, 경로(면적)만이 순서의 우열을 가른다.
@@ -491,6 +506,7 @@ export default function App() {
   const [selDefKitSig, setSelDefKitSig] = useState<string | null>(null) // 내 방어킷 (null → 추천 1위)
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
+  const [upoView, setUpoView] = useState<'eff' | 'greedy' | 'rank'>('eff') // 강화 순서 보기
   const [methodOpen, setMethodOpen] = useState(true)
   const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
 
@@ -953,28 +969,31 @@ export default function App() {
             ]} />
             <div className="upo-legend">
               {([
-                ['효율', 'eff', upgradeOrders.efficiency],
+                ['추천 (효율)', 'eff', upgradeOrders.efficiency],
                 ['탐욕', 'greedy', upgradeOrders.greedy],
-                ['랭커', 'rank', upgradeOrders.ranker],
-              ] as [string, string, UpgradeStep[]][]).map(([label, tone, steps]) => (
-                <span key={tone} className={`upo-leg ${tone}`}>
-                  {label} <span className="upo-leg-avg">평균 <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
-                </span>
+                ['랭커 실구매', 'rank', upgradeOrders.ranker],
+              ] as [string, 'eff' | 'greedy' | 'rank', UpgradeStep[]][]).map(([label, tone, steps]) => (
+                <button key={tone} className={`upo-leg ${tone} ${upoView === tone ? 'on' : ''}`} onClick={() => setUpoView(tone)}>
+                  {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 딜' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
+                </button>
               ))}
-              <span className="upo-leg-note">완성 값은 셋 다 동일 · 경로(면적) 평균으로 비교</span>
+              <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭해 아래 표 전환</span>
             </div>
-            <div className="upo-rec">
-              <span className="upo-rec-lbl">추천 순서<em>효율</em></span>
-              <div className="upo-seq">
-                {upgradeOrders.efficiency.length === 0 && <span className="upo-empty">데이터 없음</span>}
-                {upgradeOrders.efficiency.slice(0, 14).map((s, i) => (
-                  <span key={i} className={`upo-chip ${UPO_TONE[s.slot] ?? ''}`}
-                    title={`${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind)}`}>
-                    <em>{i + 1}</em>{UPO_SHORT[s.slot] ?? s.slot}<b>{s.level}</b>
-                  </span>
-                ))}
-                {upgradeOrders.efficiency.length > 14 && <span className="upo-more">…</span>}
-              </div>
+            <div className="upo-steps">
+              {(() => {
+                const steps = upoView === 'eff' ? upgradeOrders.efficiency : upoView === 'greedy' ? upgradeOrders.greedy : upgradeOrders.ranker
+                if (!steps.length) return <span className="upo-empty">데이터 없음</span>
+                const slots = gearSlotsOf(slug, tier)
+                return steps.map((s, i) => (
+                  <div key={i} className="upo-step" title={`${s.slot} ${s.level}강`}>
+                    <em>{i + 1}</em>
+                    <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
+                    <span className={`nm ${UPO_TONE[s.slot] ?? ''}`}>{UPO_SHORT[s.slot] ?? s.slot} <b>{s.level}강</b></span>
+                    <span className="coin">{fmt(s.coin)}<i>누적 {fmt(s.cumCoin)}</i></span>
+                    <span className="val">{upoVal(s.value, upoKind, 2)}<i className={s.gain >= 0 ? 'up' : 'down'}>{upoGain(s.gain, upoKind)}</i></span>
+                  </div>
+                ))
+              })()}
             </div>
           </section>
         </>
