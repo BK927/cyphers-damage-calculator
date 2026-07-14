@@ -619,6 +619,7 @@ export interface UpgradeStep {
   cumCoin: number // 누적 비용
   value: number // 강화 적용 후 목표값
   gain: number // Δ = 적용 후 − 적용 전
+  per: number[] // 그룹별 값 — 공격: [딜러,방탱,회탱] 딜 / 방어: [딜러,탱커] 생존 컷
 }
 
 /**
@@ -627,36 +628,34 @@ export interface UpgradeStep {
  * L강 구매 필요 캐릭 레벨 = 10×(L−1), 캐릭 레벨 = 강화 누적(부위별 LEVEL_GAIN).
  * 상대(필드/타깃)는 풀빌드 기준(refStage)으로 루프 밖에서 1회만 구성해 재사용.
  */
-// 강화 목표값 함수 — defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜.
-// 상대(필드/타깃)는 풀빌드 기준으로 1회만 구성해 클로저로 재사용(value가 필드 전체를 순회하므로).
-function upgradeValueFn(
+// 강화 목표값 — defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜.
+// value=종합(선택 기준), per=그룹별(공격: 딜러/방탱/회탱 딜, 방어: 딜러/탱커 생존 컷).
+// 상대(필드/타깃)는 풀빌드 기준으로 1회만 구성해 클로저로 재사용(평가가 필드 전체를 순회하므로).
+function upgradeEvaluators(
   slug: string,
   kind: 'attack' | 'defense',
   kit: KitOption | null,
   tier: Tier,
-): (gear: GearState) => number {
+): { value: (gear: GearState) => number; per: (gear: GearState) => number[] } {
   const refStage = maxStageOf(slug, tier)
-  const field: IncomingAttacker[] = kind === 'defense'
-    ? [
-        ...incomingField('dealer', refStage, tier, slug),
-        ...incomingField('tankArmor', refStage, tier, slug),
-        ...incomingField('tankEvade', refStage, tier, slug),
-      ]
-    : []
-  const target: Target | null = kind === 'attack'
-    ? mergeFields(
-        subFieldTarget('dealer', refStage, tier, slug),
-        subFieldTarget('tankArmor', refStage, tier, slug),
-        subFieldTarget('tankEvade', refStage, tier, slug),
-      )
-    : null
-  return (gear: GearState): number => {
-    if (kind === 'defense') {
-      const dmg = incomingSim(field, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
+  if (kind === 'defense') {
+    const dealer = incomingField('dealer', refStage, tier, slug)
+    const tank = [...incomingField('tankArmor', refStage, tier, slug), ...incomingField('tankEvade', refStage, tier, slug)]
+    const all = [...dealer, ...tank]
+    const surv = (atks: IncomingAttacker[], gear: GearState) => {
+      const dmg = incomingSim(atks, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
       return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
     }
-    return simulate(slug, attackerFrom(slug, gear, kit, tier), target!, '1st').cyclePlusUlt
+    return { value: (g) => surv(all, g), per: (g) => [surv(dealer, g), surv(tank, g)] }
   }
+  const ts = [
+    subFieldTarget('dealer', refStage, tier, slug),
+    subFieldTarget('tankArmor', refStage, tier, slug),
+    subFieldTarget('tankEvade', refStage, tier, slug),
+  ]
+  const merged = mergeFields(...ts)
+  const dmg = (t: Target, gear: GearState) => simulate(slug, attackerFrom(slug, gear, kit, tier), t, '1st').cyclePlusUlt
+  return { value: (g) => dmg(merged, g), per: (g) => ts.map((t) => dmg(t, g)) }
 }
 
 export function optimizeUpgradeOrder(
@@ -667,7 +666,7 @@ export function optimizeUpgradeOrder(
   mode: 'greedy' | 'efficiency',
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
-  const value = upgradeValueFn(slug, kind, kit, tier)
+  const { value, per } = upgradeEvaluators(slug, kind, kit, tier)
 
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
@@ -694,20 +693,21 @@ export function optimizeUpgradeOrder(
     if (!best) break // 후보 없음 (전 슬롯 최대 or 필요 레벨 미달)
     gear[best.slot] = { item: 0, level: best.level }
     cumCoin += best.coin
-    steps.push({ slot: best.slot, level: best.level, coin: best.coin, cumCoin, value: best.val, gain: best.gain })
+    steps.push({ slot: best.slot, level: best.level, coin: best.coin, cumCoin, value: best.val, gain: best.gain, per: per(gear) })
     base = best.val
   }
   return steps
 }
 
-/** 강화 순서(공격)의 원킬 기준선 — 풀빌드 상대 필드의 평균 HP */
-export function upgradeTargetHp(slug: string, tier: Tier = '0'): number {
+/** 강화 순서(공격)의 원킬 기준 HP — 종합 + 그룹별(딜러/방탱/회탱) 풀빌드 상대 평균 HP */
+export function upgradeGroupHps(slug: string, tier: Tier = '0'): { overall: number; per: number[] } {
   const refStage = maxStageOf(slug, tier)
-  return targetHP(mergeFields(
+  const ts = [
     subFieldTarget('dealer', refStage, tier, slug),
     subFieldTarget('tankArmor', refStage, tier, slug),
     subFieldTarget('tankEvade', refStage, tier, slug),
-  ))
+  ]
+  return { overall: targetHP(mergeFields(...ts)), per: ts.map((t) => targetHP(t)) }
 }
 
 /** 주어진 강화 순서(랭커 빌드 등)를 그대로 재생해 각 시점 값 곡선을 계산 (비교용). */
@@ -719,7 +719,7 @@ export function evalUpgradePath(
   path: { slot: string; level: number }[],
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
-  const value = upgradeValueFn(slug, kind, kit, tier)
+  const { value, per } = upgradeEvaluators(slug, kind, kit, tier)
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
   let cumCoin = 0
@@ -731,7 +731,7 @@ export function evalUpgradePath(
     const coin = item.levels[p.level - 1].coin
     cumCoin += coin
     const val = value(gear)
-    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base })
+    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, per: per(gear) })
     base = val
   }
   return steps

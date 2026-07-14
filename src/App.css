@@ -339,6 +339,13 @@
 .upo-line.rank { stroke: var(--text-3); stroke-width: 1.5; opacity: 0.75; }
 .upo-mark { stroke: var(--gold); stroke-width: 1; stroke-dasharray: 6 4; opacity: 0.65; }
 .upo-mark-lbl { fill: var(--gold); font-size: 9px; font-family: var(--mono); opacity: 0.9; }
+/* 선택 순서의 구매 지점 — 리스트 호버와 연동 */
+.upo-dot { transition: r 0.1s; }
+.upo-dot.eff { fill: var(--gold); }
+.upo-dot.greedy { fill: var(--accent-2); }
+.upo-dot.rank { fill: var(--text-3); }
+.upo-dot.mile { fill: var(--gold); stroke: var(--panel); stroke-width: 1; }
+.upo-dot.hover { stroke: var(--text); stroke-width: 1.5; }
 
 /* 범례 = 순서 선택 버튼 (평균 값 병기, 클릭 시 아래 표 전환) */
 .upo-legend { display: flex; flex-wrap: wrap; gap: 6px 8px; font-size: 11px; }
@@ -371,6 +378,10 @@
 }
 .upo-step.mile { background: color-mix(in srgb, var(--gold) 8%, transparent); border-left-color: var(--gold); }
 .upo-step .nm .tag { margin-left: 7px; font-size: 9.5px; font-weight: 700; color: var(--gold); white-space: nowrap; }
+.upo-step .nm .tag.dealer { color: var(--dealer); }
+.upo-step .nm .tag.armor { color: var(--tank); }
+.upo-step .nm .tag.evade { color: var(--evadet); }
+.upo-step:hover { background: color-mix(in srgb, var(--text) 4%, transparent); cursor: default; }
 .upo-step em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: right; }
 .upo-step img { width: 21px; height: 21px; border-radius: 5px; background: var(--inset); border: 1px solid var(--line); }
 .upo-step .nm { color: var(--text-2); white-space: nowrap; }

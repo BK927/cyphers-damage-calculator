@@ -34,7 +34,7 @@ import {
   rankDefKits,
   rankKits,
   simulate,
-  upgradeTargetHp,
+  upgradeGroupHps,
   singleTarget,
   subFieldTarget,
   type GearState,
@@ -448,10 +448,14 @@ function upoAvg(steps: UpgradeStep[]): number {
 }
 
 // 강화 순서 값 곡선 비교 (Y=값, X=누적 코인 · 세 순서를 선으로, marks=컷 기준선)
-function UpgradeChart({ curves, kind, marks = [] }: {
+// activeTone 곡선엔 구매마다 점을 찍음 — hoverIdx(리스트 호버 단계)는 크게, mileIdx(컷 달성)는 골드로
+function UpgradeChart({ curves, kind, marks = [], activeTone, hoverIdx, mileIdx }: {
   curves: { tone: string; steps: UpgradeStep[] }[]
   kind: 'attack' | 'defense'
   marks?: { y: number; label: string }[]
+  activeTone?: string
+  hoverIdx?: number | null
+  mileIdx?: Set<number>
 }) {
   const W = 600, H = 190, padL = 42, padR = 10, padT = 14, padB = 24
   const series = curves.map((c) => ({
@@ -493,6 +497,19 @@ function UpgradeChart({ curves, kind, marks = [] }: {
         <polyline key={s.tone} className={`upo-line ${s.tone}`}
           points={s.pts.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')} />
       ))}
+      {/* 선택 순서의 구매 지점 — pts[0]=시작점이라 단계 i는 pts[i+1] */}
+      {activeTone && (() => {
+        const act = series.find((s) => s.tone === activeTone)
+        if (!act || act.pts.length < 2) return null
+        return act.pts.slice(1).map((p, i) => {
+          const mile = mileIdx?.has(i)
+          const hover = hoverIdx === i
+          return (
+            <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r={hover ? 5 : mile ? 3.6 : 2.2}
+              className={`upo-dot ${activeTone}${mile ? ' mile' : ''}${hover ? ' hover' : ''}`} />
+          )
+        })
+      })()}
     </svg>
   )
 }
@@ -835,44 +852,67 @@ export default function App() {
       ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath),
     }
   }, [setting, slug, simView, upoKit, tier])
-  // 공격의 원킬 기준선 = 풀빌드 상대 필드 평균 HP (방어는 값 자체가 컷 단위)
-  const upoRefHp = useMemo(
-    () => (setting === 'auto' && upoKind === 'attack' ? upgradeTargetHp(slug, tier) : 0),
+  // 공격의 원킬 기준 HP = 풀빌드 상대 필드 평균 (종합 + 딜러/방탱/회탱 그룹별)
+  const upoHps = useMemo(
+    () => (setting === 'auto' && upoKind === 'attack' ? upgradeGroupHps(slug, tier) : null),
     [setting, upoKind, slug, tier],
   )
-  // 차트 컷 기준선: 공격=원킬선(상대 평균 HP), 방어=정수 컷(1컷/2컷…)
+  // 차트 컷 기준선: 공격=원킬선(평균 HP), 방어=정수 컷(1컷/2컷…)
   const upoMarks = useMemo(() => {
     if (!upgradeOrders) return []
-    if (upoKind === 'attack') return upoRefHp > 0 ? [{ y: upoRefHp, label: '원킬선 (상대 평균 HP)' }] : []
+    if (upoKind === 'attack') return upoHps ? [{ y: upoHps.overall, label: '원킬선 (평균 HP)' }] : []
     const vals = [...upgradeOrders.efficiency, ...upgradeOrders.greedy, ...upgradeOrders.ranker].map((s) => s.value)
     if (!vals.length) return []
     const hi = Math.max(...vals)
     const marks: { y: number; label: string }[] = []
     for (let k = 1; k <= Math.floor(hi); k++) marks.push({ y: k, label: `${k}컷 버팀` })
     return marks
-  }, [upgradeOrders, upoKind, upoRefHp])
-  // 현재 보는 순서의 단계들 + 컷 달성 단계(index → 라벨)
+  }, [upgradeOrders, upoKind, upoHps])
+  // 현재 보는 순서의 단계들 + 컷 달성 단계(index → 종합·그룹별 태그들)
   const upoSteps = upgradeOrders
     ? (upoView === 'eff' ? upgradeOrders.efficiency : upoView === 'greedy' ? upgradeOrders.greedy : upgradeOrders.ranker)
     : []
   const upoMiles = useMemo(() => {
-    const m = new Map<number, string>()
+    const m = new Map<number, { label: string; tone: string }[]>()
     if (!upoSteps.length) return m
-    const start = upoSteps[0].value - upoSteps[0].gain
+    const add = (i: number, label: string, tone: string) => {
+      const a = m.get(i) ?? []
+      a.push({ label, tone })
+      m.set(i, a)
+    }
     if (upoKind === 'attack') {
-      if (upoRefHp > 0 && start < upoRefHp) {
-        const i = upoSteps.findIndex((s) => s.value >= upoRefHp)
-        if (i >= 0) m.set(i, '원킬')
+      if (!upoHps) return m
+      // 종합 + 그룹별: 딜값이 해당 그룹 평균 HP를 처음 넘는 구매
+      const goals: [string, string, number, (s: UpgradeStep) => number][] = [
+        ['평균 원킬', 'gold', upoHps.overall, (s) => s.value],
+        ['딜러 원킬', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
+        ['방탱 원킬', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
+        ['회탱 원킬', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
+      ]
+      for (const [label, tone, hp, get] of goals) {
+        if (hp <= 0 || get(upoSteps[0]) - (upoSteps[0].gain || 0) >= hp) continue
+        const i = upoSteps.findIndex((s) => get(s) >= hp)
+        if (i >= 0) add(i, label, tone)
       }
     } else {
-      let last = Math.floor(start)
-      upoSteps.forEach((s, i) => {
-        const f = Math.floor(s.value)
-        if (f > last) { m.set(i, `${f}컷`); last = f }
-      })
+      // 종합 + 그룹별 정수 컷 돌파 (1컷=상대 한 사이클 버팀)
+      const axes: [string, string, (s: UpgradeStep) => number][] = [
+        ['평균', 'gold', (s) => s.value],
+        ['vs딜러', 'dealer', (s) => s.per[0] ?? 0],
+        ['vs탱커', 'armor', (s) => s.per[1] ?? 0],
+      ]
+      for (const [prefix, tone, get] of axes) {
+        let last = Math.floor(get(upoSteps[0]) - (prefix === '평균' ? upoSteps[0].gain : 0))
+        upoSteps.forEach((s, i) => {
+          const f = Math.floor(get(s))
+          if (f > last) { add(i, `${prefix} ${f}컷`, tone); last = f }
+        })
+      }
     }
     return m
-  }, [upoSteps, upoKind, upoRefHp])
+  }, [upoSteps, upoKind, upoHps])
+  const [upoHover, setUpoHover] = useState<number | null>(null)
+  const upoMileIdx = useMemo(() => new Set(upoMiles.keys()), [upoMiles])
 
   return (
     <div className="app">
@@ -1010,7 +1050,7 @@ export default function App() {
             </div>
             <div className="upo-body">
               <div className="upo-left">
-                <UpgradeChart kind={upoKind} marks={upoMarks} curves={[
+                <UpgradeChart kind={upoKind} marks={upoMarks} activeTone={upoView} hoverIdx={upoHover} mileIdx={upoMileIdx} curves={[
                   { tone: 'eff', steps: upgradeOrders.efficiency },
                   { tone: 'greedy', steps: upgradeOrders.greedy },
                   { tone: 'rank', steps: upgradeOrders.ranker },
@@ -1028,19 +1068,20 @@ export default function App() {
                   <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 오른쪽 순서가 바뀜</span>
                 </div>
               </div>
-              <div className="upo-steps">
+              <div className="upo-steps" onMouseLeave={() => setUpoHover(null)}>
                 {!upoSteps.length && <span className="upo-empty">데이터 없음</span>}
                 {upoSteps.map((s, i) => {
-                  const mile = upoMiles.get(i)
+                  const miles = upoMiles.get(i)
                   const slots = gearSlotsOf(slug, tier)
                   return (
-                    <div key={i} className={mile ? 'upo-step mile' : 'upo-step'}
-                      title={`${s.slot} ${s.level}강${mile ? ` — 이 구매로 ${mile === '원킬' ? '한 사이클 원킬 달성' : `${mile} 달성`}` : ''}`}>
+                    <div key={i} className={miles ? 'upo-step mile' : 'upo-step'}
+                      onMouseEnter={() => setUpoHover(i)}
+                      title={`${s.slot} ${s.level}강${miles ? ` — 이 구매로 ${miles.map((x) => x.label).join(' · ')} 달성` : ''}`}>
                       <em>{i + 1}</em>
                       <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
                       <span className={`nm ${UPO_TONE[s.slot] ?? ''}`}>
                         {UPO_SHORT[s.slot] ?? s.slot} <b>{s.level}강</b>
-                        {mile && <span className="tag">✓ {mile}</span>}
+                        {miles?.map((x) => <span key={x.label} className={`tag ${x.tone}`}>✓ {x.label}</span>)}
                       </span>
                       <span className="coin">{fmt(s.coin)}<i>누적 {fmt(s.cumCoin)}</i></span>
                       <span className="val">{upoVal(s.value, upoKind, 2)}<i className={s.gain >= 0 ? 'up' : 'down'}>{upoGain(s.gain, upoKind)}</i></span>
