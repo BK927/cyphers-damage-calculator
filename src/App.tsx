@@ -869,51 +869,59 @@ export default function App() {
     for (let k = 1; k <= Math.floor(hi); k++) marks.push({ y: k, label: `${k}컷 버팀` })
     return marks
   }, [upgradeOrders, upoKind, upoHps])
-  // 현재 보는 순서의 단계들 + 컷 달성 단계(index → 종합·그룹별 태그들)
-  const upoSteps = upgradeOrders
-    ? (upoView === 'eff' ? upgradeOrders.efficiency : upoView === 'greedy' ? upgradeOrders.greedy : upgradeOrders.ranker)
-    : []
-  const upoMiles = useMemo(() => {
-    const m = new Map<number, { label: string; tone: string }[]>()
-    if (!upoSteps.length) return m
-    const add = (i: number, label: string, tone: string) => {
-      const a = m.get(i) ?? []
-      a.push({ label, tone })
-      m.set(i, a)
-    }
-    if (upoKind === 'attack') {
-      if (!upoHps) return m
-      // 종합 + 그룹별: 딜값이 해당 그룹 평균 HP를 처음 넘는 구매
-      const goals: [string, string, number, (s: UpgradeStep) => number][] = [
-        ['평균 원킬', 'gold', upoHps.overall, (s) => s.value],
-        ['딜러 원킬', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
-        ['방탱 원킬', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
-        ['회탱 원킬', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
-      ]
-      for (const [label, tone, hp, get] of goals) {
-        if (hp <= 0 || get(upoSteps[0]) - (upoSteps[0].gain || 0) >= hp) continue
-        const i = upoSteps.findIndex((s) => get(s) >= hp)
-        if (i >= 0) add(i, label, tone)
+  // 세 순서 각각의 단계 + 컷 달성 마일스톤 — 전환 시 높이 고정을 위해 셋 다 미리 계산해 겹쳐 렌더
+  const upoAll = useMemo(() => {
+    if (!upgradeOrders) return null
+    const miles = (steps: UpgradeStep[]) => {
+      const m = new Map<number, { label: string; tone: string }[]>()
+      if (!steps.length) return m
+      const add = (i: number, label: string, tone: string) => {
+        const a = m.get(i) ?? []
+        a.push({ label, tone })
+        m.set(i, a)
       }
-    } else {
-      // 종합 + 그룹별 정수 컷 돌파 (1컷=상대 한 사이클 버팀)
-      const axes: [string, string, (s: UpgradeStep) => number][] = [
-        ['평균', 'gold', (s) => s.value],
-        ['vs딜러', 'dealer', (s) => s.per[0] ?? 0],
-        ['vs탱커', 'armor', (s) => s.per[1] ?? 0],
-      ]
-      for (const [prefix, tone, get] of axes) {
-        let last = Math.floor(get(upoSteps[0]) - (prefix === '평균' ? upoSteps[0].gain : 0))
-        upoSteps.forEach((s, i) => {
-          const f = Math.floor(get(s))
-          if (f > last) { add(i, `${prefix} ${f}컷`, tone); last = f }
-        })
+      if (upoKind === 'attack') {
+        if (!upoHps) return m
+        // 종합 + 그룹별: 딜값이 해당 그룹 평균 HP를 처음 넘는 구매
+        const goals: [string, string, number, (s: UpgradeStep) => number][] = [
+          ['평균 원킬', 'gold', upoHps.overall, (s) => s.value],
+          ['딜러 원킬', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
+          ['방탱 원킬', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
+          ['회탱 원킬', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
+        ]
+        for (const [label, tone, hp, get] of goals) {
+          if (hp <= 0 || get(steps[0]) - (steps[0].gain || 0) >= hp) continue
+          const i = steps.findIndex((s) => get(s) >= hp)
+          if (i >= 0) add(i, label, tone)
+        }
+      } else {
+        // 종합 + 그룹별 정수 컷 돌파 (1컷=상대 한 사이클 버팀)
+        const axes: [string, string, (s: UpgradeStep) => number][] = [
+          ['평균', 'gold', (s) => s.value],
+          ['vs딜러', 'dealer', (s) => s.per[0] ?? 0],
+          ['vs탱커', 'armor', (s) => s.per[1] ?? 0],
+        ]
+        for (const [prefix, tone, get] of axes) {
+          let last = Math.floor(get(steps[0]) - (prefix === '평균' ? steps[0].gain : 0))
+          steps.forEach((s, i) => {
+            const f = Math.floor(get(s))
+            if (f > last) { add(i, `${prefix} ${f}컷`, tone); last = f }
+          })
+        }
       }
+      return m
     }
-    return m
-  }, [upoSteps, upoKind, upoHps])
+    return {
+      eff: { steps: upgradeOrders.efficiency, miles: miles(upgradeOrders.efficiency) },
+      greedy: { steps: upgradeOrders.greedy, miles: miles(upgradeOrders.greedy) },
+      rank: { steps: upgradeOrders.ranker, miles: miles(upgradeOrders.ranker) },
+    }
+  }, [upgradeOrders, upoKind, upoHps])
   const [upoHover, setUpoHover] = useState<number | null>(null)
-  const upoMileIdx = useMemo(() => new Set(upoMiles.keys()), [upoMiles])
+  const upoMileIdx = useMemo(
+    () => new Set(upoAll ? upoAll[upoView].miles.keys() : []),
+    [upoAll, upoView],
+  )
 
   return (
     <div className="app">
@@ -1049,31 +1057,41 @@ export default function App() {
               {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
               <span className="upo-hint">Y = {simView === 'attack' ? '한타 딜' : '생존 컷'} · X = 누적 코인</span>
             </div>
-            {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔 */}
-            <div className="upo-road" onMouseLeave={() => setUpoHover(null)}>
-              {!upoSteps.length && <span className="upo-empty">데이터 없음</span>}
-              {upoSteps.map((s, i) => {
-                const miles = upoMiles.get(i)
+            {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔.
+                세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
+            <div className="upo-roads">
+              {(['eff', 'greedy', 'rank'] as const).map((v) => {
+                const { steps, miles: mm } = upoAll?.[v] ?? { steps: [], miles: new Map<number, { label: string; tone: string }[]>() }
+                const active = upoView === v
                 const slots = gearSlotsOf(slug, tier)
                 return (
-                  <Fragment key={i}>
-                    <div className={miles ? 'upo-buy mile' : 'upo-buy'}
-                      onMouseEnter={() => setUpoHover(i)}
-                      title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`}>
-                      <em>{i + 1}</em>
-                      <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
-                      <span className="t">
-                        <b className={UPO_TONE[s.slot] ?? ''}>{UPO_SHORT[s.slot] ?? s.slot}{s.level}</b>
-                        <i>{upoVal(s.value, upoKind)}</i>
-                      </span>
-                    </div>
-                    {miles && (
-                      <div className={`upo-cut ${miles[0].tone}`}>
-                        {miles.map((x) => <b key={x.label} className={x.tone}>✓ {x.label}</b>)}
-                        <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인</small>
-                      </div>
-                    )}
-                  </Fragment>
+                  <div key={v} className={active ? 'upo-road' : 'upo-road off'}
+                    onMouseLeave={active ? () => setUpoHover(null) : undefined}>
+                    {!steps.length && <span className="upo-empty">데이터 없음</span>}
+                    {steps.map((s, i) => {
+                      const miles = mm.get(i)
+                      return (
+                        <Fragment key={i}>
+                          <div className={miles ? 'upo-buy mile' : 'upo-buy'}
+                            onMouseEnter={active ? () => setUpoHover(i) : undefined}
+                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`}>
+                            <em>{i + 1}</em>
+                            <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
+                            <span className="t">
+                              <b className={UPO_TONE[s.slot] ?? ''}>{UPO_SHORT[s.slot] ?? s.slot}{s.level}</b>
+                              <i>{upoVal(s.value, upoKind)}</i>
+                            </span>
+                          </div>
+                          {miles && (
+                            <div className={`upo-cut ${miles[0].tone}`}>
+                              {miles.map((x) => <b key={x.label} className={x.tone}>✓ {x.label}</b>)}
+                              <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인</small>
+                            </div>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </div>
                 )
               })}
             </div>

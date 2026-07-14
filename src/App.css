@@ -362,18 +362,31 @@
 .upo-leg-note { flex-basis: 100%; color: var(--text-3); font-size: 10px; }
 
 /* 구매 로드맵 — 칩 흐름, 컷 달성이 페이즈 구분선 */
-.upo-road { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+/* 세 순서를 같은 셀에 겹쳐 렌더 → 높이가 최대 로드맵으로 고정, 전환 시 점프 없음 */
+.upo-roads { display: grid; }
+.upo-road { grid-area: 1 / 1; display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+.upo-road.off { visibility: hidden; pointer-events: none; }
 .upo-buy {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--inset); border: 1px solid var(--line); border-radius: 9px;
-  padding: 5px 9px 5px 7px; cursor: default; transition: border-color 0.12s;
+  padding: 5px 9px 5px 6px; cursor: default; transition: border-color 0.12s;
+  position: relative;
 }
 .upo-buy:hover { border-color: var(--line-2); }
 .upo-buy.mile { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); background: color-mix(in srgb, var(--gold) 7%, var(--inset)); }
-.upo-buy em {
-  font-style: normal; font-family: var(--mono); font-size: 9.5px; color: var(--text-3);
-  min-width: 14px; text-align: right;
+/* 인접 칩 사이 연결 화살표 (페이즈 첫 칩은 구분선 뒤라 자동 제외) */
+.upo-buy + .upo-buy { margin-left: 11px; }
+.upo-buy + .upo-buy::before {
+  content: '›'; position: absolute; left: -12px; top: 50%; transform: translateY(-54%);
+  color: var(--text-3); font-size: 13px; font-weight: 600; opacity: 0.8;
 }
+.upo-buy em {
+  font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--text-2);
+  min-width: 17px; height: 17px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--line-2);
+}
+.upo-buy.mile em { border-color: var(--gold); color: var(--gold); }
 .upo-buy img { width: 24px; height: 24px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
 .upo-buy .t { display: flex; flex-direction: column; gap: 0; line-height: 1.25; }
 .upo-buy .t b { font-size: 11.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
