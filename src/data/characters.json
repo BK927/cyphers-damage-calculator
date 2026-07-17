@@ -1,6 +1,6 @@
 {
   "source": "https://cyphers.nexon.com/game/character/info/{slug}",
-  "scrapedAt": "2026-07-12",
+  "scrapedAt": "2026-07-17",
   "note": "공식 기본 능력치. statKeys: attack=공격, crit=치명, hp=체력, evade=회피, defense=방어, move=이동",
   "characters": [
     { "slug": "loras", "name": "로라스", "attack": 119, "crit": 56, "hp": 1800, "evade": 54, "defense": 15, "move": 332 },
