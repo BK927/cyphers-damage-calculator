@@ -21,6 +21,7 @@ import {
   autoGear,
   defenderFrom,
   fullGear,
+  gearAtStep,
   gearSlotsOf,
   getSkills,
   hasTwoModes,
@@ -44,7 +45,6 @@ import {
   type SkillClass,
   type Target,
   type UpgradeStep,
-  type UpoObjective,
 } from './recommend'
 import type { SkillMode } from './types'
 
@@ -449,16 +449,15 @@ function upoAvg(steps: UpgradeStep[]): number {
 }
 
 // 강화 순서 값 곡선 비교 (Y=값, X=누적 코인 · 세 순서를 선으로, marks=컷 기준선)
-// hpCurve=단계별 상대 HP(원콤선) — 상대가 함께 성장하면 기울고, 풀빌드면 평평해짐
 // activeTone 곡선엔 구매마다 점을 찍음 — hoverIdx(리스트 호버 단계)는 크게, mileIdx(컷 달성)는 골드로
-function UpgradeChart({ curves, kind, marks = [], hpCurve, activeTone, hoverIdx, mileIdx }: {
+function UpgradeChart({ curves, kind, marks = [], activeTone, hoverIdx, mileIdx, nowCoin }: {
   curves: { tone: string; steps: UpgradeStep[] }[]
   kind: 'attack' | 'defense'
   marks?: { y: number; label: string }[]
-  hpCurve?: { x: number; y: number }[]
   activeTone?: string
   hoverIdx?: number | null
   mileIdx?: Set<number>
+  nowCoin?: number // 현재 게임 시점의 누적 코인 → 세로선
 }) {
   const W = 600, H = 190, padL = 42, padR = 10, padT = 14, padB = 24
   const series = curves.map((c) => ({
@@ -471,7 +470,7 @@ function UpgradeChart({ curves, kind, marks = [], hpCurve, activeTone, hoverIdx,
   const all = series.flatMap((s) => s.pts)
   if (!all.length) return null
   const maxX = Math.max(...all.map((p) => p.x)) || 1
-  const ys = [...all.map((p) => p.y), ...marks.map((m) => m.y), ...(hpCurve ?? []).map((p) => p.y)] // 기준선도 범위에 포함
+  const ys = [...all.map((p) => p.y), ...marks.map((m) => m.y)] // 기준선도 범위에 포함
   const minY = Math.min(...ys), maxY = Math.max(...ys) || 1
   const spanY = maxY - minY || 1
   const sx = (x: number) => padL + (x / maxX) * (W - padL - padR)
@@ -496,11 +495,8 @@ function UpgradeChart({ curves, kind, marks = [], hpCurve, activeTone, hoverIdx,
           <text x={W - padR - 3} y={sy(m.y) - 4} className="upo-mark-lbl" textAnchor="end">{m.label}</text>
         </g>
       ))}
-      {hpCurve && hpCurve.length > 1 && (
-        <g>
-          <polyline className="upo-hpline" points={hpCurve.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')} />
-          <text x={W - padR - 3} y={sy(hpCurve[hpCurve.length - 1].y) - 4} className="upo-mark-lbl" textAnchor="end">상대 HP</text>
-        </g>
+      {nowCoin != null && nowCoin > 0 && nowCoin <= maxX && (
+        <line x1={sx(nowCoin)} y1={padT} x2={sx(nowCoin)} y2={H - padB} className="upo-now" />
       )}
       {series.map((s) => s.pts.length > 1 && (
         <polyline key={s.tone}
@@ -541,13 +537,11 @@ export default function App() {
   const [selDefKitSig, setSelDefKitSig] = useState<string | null>(null) // 내 방어킷 (null → 추천 1위)
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
-  const [upoView, setUpoView] = useState<'eff' | 'greedy' | 'rank'>('eff') // 강화 순서 보기
+  // 빌드 순서 소스 — 이것이 곧 내 장비 진행. 기본 rank(랭커 실구매 = 하위호환)
+  const [buildSrc, setBuildSrc] = useState<'atk' | 'def' | 'rank'>('rank')
   // 강화 순서의 상대 진행도. 기본 full — 상대가 나와 같이 크면 원콤이 항상 참이라
   // 마일스톤이 정보를 잃음("완성된 상대를 한 콤보에 잡는 시점"이 의미 있는 질문)
   const [upoOpp, setUpoOpp] = useState<'sync' | 'full'>('full')
-  // 공격 목표값. 기본 contrib(총 딜 기여 = 딜 × 생존 사이클) — burst만 쓰면
-  // 죽는 걸 계산에 안 넣어 셔츠(체력)를 끝까지 안 사는 문제가 있음
-  const [upoObj, setUpoObj] = useState<UpoObjective>('contrib')
   // 강화 순서 기준 장비 편집 — 후보가 여러 개인 슬롯을 직접 골라 로드맵을 다시 짬
   const [upoGearOpen, setUpoGearOpen] = useState(false)
   const [upoItems, setUpoItems] = useState<Record<string, number>>({}) // 슬롯→아이템 인덱스 오버라이드
@@ -567,8 +561,9 @@ export default function App() {
   const [oppGear, setOppGear] = useState<GearState | null>(null)
   const [oppKitIdx, setOppKitIdx] = useState(0)
 
-  const maxStage = maxStageOf(slug, tier)
-  const stageEff = Math.min(stage ?? maxStage, maxStage)
+  const bootMax = maxStageOf(slug, tier)
+  // 부트스트랩(킷 선택·상대 필드)용 게임 시점 — 랭커 길이로 클램프해 순서↔킷 순환을 끊음
+  const bootStage = Math.min(stage ?? bootMax, bootMax)
   const twoModes = hasTwoModes(slug)
 
   const selectChar = (s: string) => {
@@ -584,13 +579,17 @@ export default function App() {
       return next
     })
 
-  // 내 장비 (자동=대세 진행 / 수동=직접)
-  const gearEff = useMemo(
-    () => (setting === 'auto' ? autoGear(slug, stageEff, tier) : myGear ?? fullGear(slug, tier)),
-    [setting, slug, stageEff, myGear, tier],
+  // 수동 장비 (자동 모드 미사용) — fieldStage/부트스트랩에 필요해 먼저 확정
+  const myGearResolved = useMemo(() => myGear ?? fullGear(slug, tier), [myGear, slug, tier])
+  // 상대 필드 진행도 — 자동=부트스트랩 시점(상대는 랭커 빌드라 랭커 길이로 유계), 수동=내 구매 수
+  const fieldStage = setting === 'auto' ? bootStage : gearLevelCount(myGearResolved)
+  // 부트스트랩 장비 — 항상 랭커 순서 스냅샷(킷 무관). 킷 추천 순환의 기준
+  const bootGear = useMemo(
+    () => (setting === 'auto' ? autoGear(slug, bootStage, tier) : myGearResolved),
+    [setting, slug, bootStage, myGearResolved, tier],
   )
 
-  // 상대 타깃
+  // 상대 타깃 (fieldStage 기준)
   const oppKits = useMemo(() => {
     const list = tierView(oppSlug, tier).defenseKits
     return [...list, NONE_KIT]
@@ -600,18 +599,52 @@ export default function App() {
       const og = oppGear ?? fullGear(oppSlug, tier)
       return [singleTarget(oppSlug, og, oppKits[Math.min(oppKitIdx, oppKits.length - 1)] ?? null, tier)]
     }
-    // 필드: 자동=슬라이더 진행도, 수동=내 구매 수에 맞춘 템포. 딜러 / 방탱 / 회탱
-    const st = setting === 'auto' ? stageEff : gearLevelCount(gearEff)
+    // 필드: 딜러 / 방탱 / 회탱 (상대는 fieldStage까지 랭커 진행)
     return [
-      subFieldTarget('dealer', st, tier, slug),
-      subFieldTarget('tankArmor', st, tier, slug),
-      subFieldTarget('tankEvade', st, tier, slug),
+      subFieldTarget('dealer', fieldStage, tier, slug),
+      subFieldTarget('tankArmor', fieldStage, tier, slug),
+      subFieldTarget('tankEvade', fieldStage, tier, slug),
     ]
-  }, [setting, oppType, oppSlug, oppGear, oppKitIdx, oppKits, stageEff, gearEff, slug, tier])
+  }, [setting, oppType, oppSlug, oppGear, oppKitIdx, oppKits, fieldStage, slug, tier])
   const fieldMode = targets.length === 3
   const TONES = ['dealer', 'armor', 'evade'] as const
 
-  // 킷 랭킹 + 선택
+  // ── 순환 절단: 부트스트랩 킷(랭커 스냅샷 기준) → 순서·전투·칩 'on'에 쓰는 실효 킷 ──
+  const bootKitRank = useMemo(
+    () => rankKits(slug, bootGear, atkOptions, targets, skillMode, tier),
+    [slug, bootGear, targets, skillMode, tier],
+  )
+  const selectedKit =
+    (selKitSig ? atkOptions.find((k) => kitSig(k) === selKitSig) : null) ?? bootKitRank[0]?.kit ?? NONE_KIT
+  const bootDefRank = useMemo(
+    () => (fieldMode ? rankDefKits(slug, bootGear, defOptions, fieldStage, tier) : null),
+    [fieldMode, slug, bootGear, fieldStage, tier],
+  )
+  const selectedDefKit =
+    (selDefKitSig ? defOptions.find((k) => kitSig(k) === selDefKitSig) : null) ?? bootDefRank?.[0]?.kit ?? NONE_KIT
+
+  // 빌드 순서 (자동 전용) — atk/def=효율 최적(실효 킷), rank=랭커 실구매. 이것이 곧 내 장비 진행
+  const buildOrders = useMemo(() => {
+    if (setting !== 'auto') return null
+    const rankerPath = (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level }))
+    const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier)
+    return {
+      atk: optimizeUpgradeOrder(slug, 'attack', selectedKit, tier, 'efficiency', opp, 'contrib', upoItems),
+      def: optimizeUpgradeOrder(slug, 'defense', selectedDefKit, tier, 'efficiency', opp, 'contrib', upoItems),
+      rank: evalUpgradePath(slug, 'attack', selectedKit, tier, rankerPath, opp, 'contrib', upoItems),
+    }
+  }, [setting, slug, tier, selectedKit, selectedDefKit, upoOpp, upoItems])
+  const selectedOrder = buildOrders?.[buildSrc] ?? null
+  const maxStage = selectedOrder ? selectedOrder.length : bootMax // 슬라이더 최대 = 선택 순서 길이
+  const stageEff = Math.min(stage ?? maxStage, maxStage)
+
+  // 내 장비 (자동=선택 순서의 첫 stageEff개 / 수동=직접)
+  const gearEff = useMemo(
+    () => (setting === 'auto' && selectedOrder ? gearAtStep(selectedOrder, stageEff) : myGearResolved),
+    [setting, selectedOrder, stageEff, myGearResolved],
+  )
+
+  // 화면 킷 랭킹 (gearEff 기준 점수) — 칩에 표시. 칩 'on'/전투는 위 selectedKit(실효 킷)
   const kitRank = useMemo(
     () => rankKits(slug, gearEff, atkOptions, targets, skillMode, tier),
     [slug, gearEff, targets, skillMode, tier],
@@ -627,8 +660,6 @@ export default function App() {
       }),
     [kitRank, targets],
   )
-  const selectedKit =
-    (selKitSig ? atkOptions.find((k) => kitSig(k) === selKitSig) : null) ?? kitRank[0]?.kit ?? NONE_KIT
   // 정렬 기준: all=종합, dealer, tank(방탱+회탱), armor(방탱), evade(회탱)
   const sortKey = fieldMode ? kitSort : 'all'
   const kitScore = (per: number[], key: string) => {
@@ -649,12 +680,11 @@ export default function App() {
     return [...kitRank].sort((a, b) => kitScore(b.per, sortKey) - kitScore(a.per, sortKey))
   }, [kitRank, sortKey, atkUsage])
 
-  // 방어킷 추천 — 필드가 내게 넣는 피해로 생존 사이클 수 산정 (필드 모드 전용)
+  // 화면 방어킷 랭킹 (gearEff 기준 점수) — 칩 표시용. 칩 'on'/피격은 위 selectedDefKit(실효 킷)
   const defRank = useMemo(() => {
     if (!fieldMode) return null
-    const st = setting === 'auto' ? stageEff : gearLevelCount(gearEff)
-    return rankDefKits(slug, gearEff, defOptions, st, tier)
-  }, [fieldMode, slug, gearEff, setting, stageEff, tier])
+    return rankDefKits(slug, gearEff, defOptions, fieldStage, tier)
+  }, [fieldMode, slug, gearEff, fieldStage, tier])
   const defBestSig = defRank?.[0] ? kitSig(defRank[0].kit) : null
   const defBestPerTarget = useMemo(
     () => (defRank
@@ -667,13 +697,10 @@ export default function App() {
     [defRank],
   )
   const defNoneTotal = defRank?.find((s) => s.kit.name === '킷 없음')?.total ?? 0
-  // 선택된 내 방어킷 (null → 추천 1위, 없으면 킷 없음)
-  const selectedDefKit =
-    (selDefKitSig ? defOptions.find((k) => kitSig(k) === selDefKitSig) : null) ?? defRank?.[0]?.kit ?? NONE_KIT
 
   // 나를 때리는 공격자 목록 — 방어킷과 무관 → 1회 구성 (방어킷 변경 시 incomingSim만 재계산)
   const incomingGroups = useMemo(() => {
-    const st = setting === 'auto' ? stageEff : gearLevelCount(gearEff)
+    const st = fieldStage
     if (setting === 'manual' && oppType === 'single') {
       const og = oppGear ?? fullGear(oppSlug, tier)
       const atkBase = attackerFrom(oppSlug, og, null, tier, true) // 킷 없는 기준 → 공격킷별로 파생
@@ -699,7 +726,7 @@ export default function App() {
     const dealer = incomingField('dealer', st, tier, slug)
     const tank = [...incomingField('tankArmor', st, tier, slug), ...incomingField('tankEvade', st, tier, slug)]
     return { mode: 'field' as const, dealer, tank, all: [...dealer, ...tank] }
-  }, [setting, oppType, oppSlug, oppGear, stageEff, gearEff, slug, tier])
+  }, [setting, oppType, oppSlug, oppGear, fieldStage, slug, tier])
 
   // 피격 패널 (선택 방어킷 vs 킷 없음) — 종합/딜러/탱커 or 1:1
   const defPanels = useMemo<DefPanelData[]>(() => {
@@ -860,10 +887,8 @@ export default function App() {
     }))
   }, [gearEff, slug, tier])
 
-  // 강화 순서 추천 (자동 모드 전용) — 현재 탭(공격/방어)·선택 킷 기준 탐욕/효율 + 랭커 빌드
-  // 무거우니 auto 모드일 때만 계산. 킷: 공격=선택 공격킷, 방어=선택 방어킷
+  // 로드맵 표시 지표 = 현재 탭(공격/방어). 장비 진행은 buildSrc(위 gearEff)가 결정
   const upoKind: 'attack' | 'defense' = simView === 'attack' ? 'attack' : 'defense'
-  const upoKit = simView === 'attack' ? selectedKit : selectedDefKit
   // 기준 장비 편집기에 띄울 슬롯 — 후보가 2개 이상인 슬롯만. 목걸이는 탭 성향이 기본 선택
   const upoGearRows = useMemo(() => {
     const slots = gearSlotsOf(slug, tier)
@@ -880,29 +905,38 @@ export default function App() {
       return [{ slot, label: SLOT_SHORT[slot] ?? slot, cands, defIdx, neck: slot === '목', matched }]
     })
   }, [slug, tier, upoKind])
-  const upgradeOrders = useMemo(() => {
-    if (setting !== 'auto') return null
-    const rankerPath = (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level }))
-    const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier) // 상대 진행도
-    return {
-      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy', opp, upoObj, upoItems),
-      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency', opp, upoObj, upoItems),
-      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath, opp, upoObj, upoItems),
+  // 표시용 순서 — 세 빌드 순서를 모두 현재 탭(kind·킷) 지표로 재생. 소스·탭 일치면 재생 생략.
+  // 재생 시 원 순서의 아이템 인덱스를 강제 → 목걸이 변형·레벨 수가 탭에 따라 흔들리지 않음.
+  const displayBuilds = useMemo(() => {
+    if (!buildOrders) return null
+    const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier)
+    const kit = upoKind === 'attack' ? selectedKit : selectedDefKit
+    const srcIdx = (steps: UpgradeStep[]) => {
+      const m: Record<string, number> = {}
+      for (const s of steps) if (s.item != null) m[s.slot] = s.item
+      return m
     }
-  }, [setting, slug, simView, upoKit, tier, upoOpp, upoObj, upoItems])
-  // 차트 컷 기준선: 공격=상대 HP 곡선(hpCurve)으로 대체, 방어=정수 컷(1컷/2컷…)
+    const replay = (steps: UpgradeStep[]) =>
+      evalUpgradePath(slug, upoKind, kit, tier, steps.map((s) => ({ slot: s.slot, level: s.level })), opp, 'contrib', srcIdx(steps))
+    return {
+      atk: upoKind === 'attack' ? buildOrders.atk : replay(buildOrders.atk),
+      def: upoKind === 'defense' ? buildOrders.def : replay(buildOrders.def),
+      rank: upoKind === 'attack' ? buildOrders.rank : replay(buildOrders.rank),
+    }
+  }, [buildOrders, upoKind, selectedKit, selectedDefKit, upoOpp, slug, tier])
+  // 차트 컷 기준선: 방어=정수 컷(1컷/2컷…), 공격=없음
   const upoMarks = useMemo(() => {
-    if (!upgradeOrders || upoKind === 'attack') return []
-    const vals = [...upgradeOrders.efficiency, ...upgradeOrders.greedy, ...upgradeOrders.ranker].map((s) => s.value)
+    if (!displayBuilds || upoKind === 'attack') return []
+    const vals = [...displayBuilds.atk, ...displayBuilds.def, ...displayBuilds.rank].map((s) => s.value)
     if (!vals.length) return []
     const hi = Math.max(...vals)
     const marks: { y: number; label: string }[] = []
     for (let k = 1; k <= Math.floor(hi); k++) marks.push({ y: k, label: `${k}컷 버팀` })
     return marks
-  }, [upgradeOrders, upoKind])
+  }, [displayBuilds, upoKind])
   // 세 순서 각각의 단계 + 컷 달성 마일스톤 — 전환 시 높이 고정을 위해 셋 다 미리 계산해 겹쳐 렌더
   const upoAll = useMemo(() => {
-    if (!upgradeOrders) return null
+    if (!displayBuilds) return null
     const miles = (steps: UpgradeStep[]) => {
       const m = new Map<number, { label: string; tone: string; strong?: boolean }[]>()
       if (!steps.length) return m
@@ -951,23 +985,18 @@ export default function App() {
       return m
     }
     return {
-      eff: { steps: upgradeOrders.efficiency, miles: miles(upgradeOrders.efficiency) },
-      greedy: { steps: upgradeOrders.greedy, miles: miles(upgradeOrders.greedy) },
-      rank: { steps: upgradeOrders.ranker, miles: miles(upgradeOrders.ranker) },
+      atk: { steps: displayBuilds.atk, miles: miles(displayBuilds.atk) },
+      def: { steps: displayBuilds.def, miles: miles(displayBuilds.def) },
+      rank: { steps: displayBuilds.rank, miles: miles(displayBuilds.rank) },
     }
-  }, [upgradeOrders, upoKind])
+  }, [displayBuilds, upoKind])
   const [upoHover, setUpoHover] = useState<number | null>(null)
   const upoMileIdx = useMemo(
-    () => new Set(upoAll ? upoAll[upoView].miles.keys() : []),
-    [upoAll, upoView],
+    () => new Set(upoAll ? upoAll[buildSrc].miles.keys() : []),
+    [upoAll, buildSrc],
   )
-  // 공격 차트의 원콤 기준선 = 선택 순서의 단계별 상대 HP (풀빌드 모드면 평평한 선)
-  const upoHpCurve = useMemo(() => {
-    // 딜 기여(딜×생존)는 상대 HP와 단위가 달라 비교 불가 → 화력 모드에서만 원콤선 표시
-    if (!upoAll || upoKind !== 'attack' || upoObj !== 'burst') return undefined
-    const pts = upoAll[upoView].steps.filter((s) => s.hp != null).map((s) => ({ x: s.cumCoin, y: s.hp as number }))
-    return pts.length > 1 ? pts : undefined
-  }, [upoAll, upoView, upoKind, upoObj])
+  // 차트의 현재 시점 세로선 X좌표(누적 코인) — stageEff번째 구매 지점
+  const nowCoin = selectedOrder && stageEff > 0 ? selectedOrder[Math.min(stageEff, selectedOrder.length) - 1]?.cumCoin ?? 0 : 0
 
   return (
     <div className="app">
@@ -1056,16 +1085,70 @@ export default function App() {
         </div>
       )}
 
-      {/* 내 세팅 */}
+      {/* 내 세팅 — 순서 소스가 곧 내 빌드, 슬라이더가 그 로드맵 위 게임 시점 */}
       <SecHead
         title="내 세팅"
         sub={setting === 'auto'
-          ? '대세 빌드 순서대로 자동 진행 — 슬라이더로 게임 시점을 조절하세요'
+          ? '구매 순서를 고르면 그 순서로 진행 — 슬라이더가 게임 시점입니다'
           : '장비 레벨·아이템과 상대를 직접 조정합니다'}
       />
-      {/* 자동 세팅 */}
-      {setting === 'auto' && (
-        <section className="panel auto">
+      {setting === 'auto' && buildOrders && displayBuilds && (
+        <section className="panel auto upo">
+          {/* 순서 소스(=범례) + 기준 장비 + 상대 진행도 */}
+          <div className="upo-bar">
+            <div className="upo-legend" title={'완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이\n순서를 고르면 그게 곧 내 장비 진행이 됩니다\n신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정'}>
+              {([
+                ['공격 최적', 'atk', displayBuilds.atk],
+                ['생존 최적', 'def', displayBuilds.def],
+                ['랭커 실구매', 'rank', displayBuilds.rank],
+              ] as [string, 'atk' | 'def' | 'rank', UpgradeStep[]][]).map(([label, tone, steps]) => (
+                <button key={tone} className={`upo-leg ${tone} ${buildSrc === tone ? 'on' : ''}`} onClick={() => setBuildSrc(tone)}>
+                  {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 기여' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
+                </button>
+              ))}
+            </div>
+            <div className="upo-bar-right">
+              {upoGearRows.length > 0 && (
+                <button className={`upo-ctl upo-gear-btn${upoGearOpen ? ' on' : ''}`}
+                  onClick={() => setUpoGearOpen((v) => !v)}
+                  title="빌드가 쓰는 슬롯별 아이템을 직접 고름">
+                  기준 장비 {upoGearOpen ? '▴' : '▾'}
+                </button>
+              )}
+              <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
+                <span className="lbl">상대</span>
+                {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
+                  <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
+                ))}
+              </span>
+            </div>
+          </div>
+          {upoGearOpen && upoGearRows.length > 0 && (
+            <div className="upo-gearedit">
+              {upoGearRows.map((r) => {
+                const cur = upoItems[r.slot] ?? r.defIdx
+                return (
+                  <div key={r.slot} className="upo-ge-row">
+                    <span className="upo-ge-lbl">{r.label}</span>
+                    <select value={cur} onChange={(e) => setUpoItems((m) => ({ ...m, [r.slot]: +e.target.value }))}>
+                      {r.cands.map((c, i) => (
+                        <option key={i} value={i}>{c.name} ({Math.round((c.pct || 0) * 100)}%)</option>
+                      ))}
+                    </select>
+                    {r.neck && (
+                      <em className="upo-ge-note">
+                        {upoKind === 'attack' ? '공목' : '방목'} 성향 기본
+                        {!r.matched && ' · 표본 없어 실착용 기준'}
+                      </em>
+                    )}
+                  </div>
+                )
+              })}
+              <button className="upo-ge-reset" onClick={() => setUpoItems({})}
+                disabled={Object.keys(upoItems).length === 0}>기본으로</button>
+            </div>
+          )}
+          {/* 게임 시점 슬라이더 */}
           <div className="auto-row">
             <span className="lbl">게임 시점</span>
             <input type="range" min={1} max={maxStage} value={stageEff} onChange={(e) => setStage(+e.target.value)} />
@@ -1076,6 +1159,61 @@ export default function App() {
             </span>
             <span className="stage-n"><b>{stageEff}</b>/{maxStage}구매</span>
           </div>
+          {/* 구매 로드맵 — 슬라이더 이전=구매됨 / 이후=예정. 칩 클릭 → 그 시점으로 이동.
+              세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
+          <div className="upo-roads">
+            {(['atk', 'def', 'rank'] as const).map((v) => {
+              const { steps, miles: mm } = upoAll?.[v] ?? { steps: [], miles: new Map<number, { label: string; tone: string; strong?: boolean }[]>() }
+              const active = buildSrc === v
+              const slots = gearSlotsOf(slug, tier)
+              return (
+                <div key={v} className={active ? 'upo-road' : 'upo-road off'}
+                  onMouseLeave={active ? () => setUpoHover(null) : undefined}>
+                  {!steps.length && <span className="upo-empty">데이터 없음</span>}
+                  {steps.map((s, i) => {
+                    const miles = mm.get(i)
+                    const todo = i >= stageEff // 슬라이더 시점 이후 = 예정
+                    return (
+                      <Fragment key={i}>
+                        <div className={`upo-buy${miles ? ' mile' : ''}${todo ? ' todo' : ''}`}
+                          onMouseEnter={active ? () => setUpoHover(i) : undefined}
+                          onClick={active ? () => setStage(i + 1) : undefined}
+                          title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강${s.charLv != null ? ` · Lv.${i > 0 ? steps[i - 1].charLv ?? 0 : 0}→${s.charLv}` : ''} · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})\n클릭하면 이 시점으로 이동`
+                            + (upoKind === 'attack' && s.surv != null
+                              ? `\n= 한타 딜 ${fmt(s.per[0] != null ? s.value / s.surv : 0)} × 생존 ${s.surv.toFixed(2)}사이클` : '')
+                            + (s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : '')}>
+                          <em>{i + 1}</em>
+                          <img src={itemIcon(slots[s.slot]?.[s.item ?? 0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
+                          <span className="t">
+                            <b className={UPO_TONE[s.slot] ?? ''}>{slots[s.slot]?.[s.item ?? 0]?.name ?? UPO_SHORT[s.slot] ?? s.slot}</b>
+                            <i><u>{UPO_SHORT[s.slot] ?? s.slot} {s.level}강</u>{s.charLv != null && <span className="lv">Lv.{s.charLv}</span>} · {upoVal(s.value, upoKind)}</i>
+                          </span>
+                        </div>
+                        {miles && (
+                          <div className={`upo-cut ${miles[0].tone}${todo ? ' todo' : ''}`}
+                            title={upoKind === 'attack'
+                              ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)\n궁없이 원콤 = 궁을 아껴도 사이클만으로 처치 (최상)'
+                              : 'N컷 = 상대의 사이클+궁 N번을 버티는 체력·방어'}>
+                            {miles.map((x) => (
+                              <b key={x.label} className={x.strong ? `${x.tone} noult` : x.tone}>✓ {x.label}</b>
+                            ))}
+                            <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인{upoKind === 'attack' && miles.every((x) => !x.strong) ? ' · 궁 포함' : ''}</small>
+                          </div>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+          <UpgradeChart kind={upoKind} marks={upoMarks} activeTone={buildSrc} hoverIdx={upoHover} mileIdx={upoMileIdx} nowCoin={nowCoin} curves={[
+            { tone: 'atk', steps: displayBuilds.atk },
+            { tone: 'def', steps: displayBuilds.def },
+            { tone: 'rank', steps: displayBuilds.rank },
+          ]} />
+          <span className="upo-leg-note">순서를 클릭해 진행 방식을 바꾸고, 칩·슬라이더로 게임 시점을 조절 · 평균 = 코인 가중 경로 평균 · 세로선 = 현재 시점</span>
+          {/* 지금 세팅 그리드 — gearEff 스냅샷이라 순서·시점에 자동 연동 */}
           <div className="auto-sum">
             <span className="lbl">지금 세팅</span>
             {autoSummary.map((s) => (
@@ -1087,149 +1225,6 @@ export default function App() {
             {build && <span className="src">구매 순서: 랭커 매치 {build.samples.toLocaleString()}판 (Neople API)</span>}
           </div>
         </section>
-      )}
-
-      {/* 강화 순서 추천 (자동 모드 · 현재 탭·선택 킷 기준) */}
-      {setting === 'auto' && upgradeOrders && (
-        <>
-          <SecHead
-            title="강화 순서 추천"
-            sub="코인 대비 이득이 가장 큰 순서 — 컷 달성 시점 표시"
-          />
-          <section className="panel upo">
-            <div className="upo-bar">
-              <label className="upo-ctl">
-                <span className="lbl">킷</span>
-                {simView === 'attack' ? (
-                  <select value={kitSig(selectedKit)} onChange={(e) => setSelKitSig(e.target.value)}
-                    title="강화 순서 기준 공격킷 — 아래 킷 칩 선택과 공유">
-                    {atkOptions.map((k) => (
-                      <option key={kitSig(k)} value={kitSig(k)}>{kitName(k)}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <select value={kitSig(selectedDefKit)} onChange={(e) => setSelDefKitSig(e.target.value)}
-                    title="강화 순서 기준 방어킷 — 아래 킷 칩 선택과 공유">
-                    {defOptions.map((k) => (
-                      <option key={kitSig(k)} value={kitSig(k)}>{defKitName(k)}</option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              {upoGearRows.length > 0 && (
-                <button className={`upo-ctl upo-gear-btn${upoGearOpen ? ' on' : ''}`}
-                  onClick={() => setUpoGearOpen((v) => !v)}
-                  title="로드맵이 쓰는 슬롯별 아이템을 직접 고름">
-                  기준 장비 {upoGearOpen ? '▴' : '▾'}
-                </button>
-              )}
-              <div className="upo-bar-right">
-                {simView === 'attack' && (
-                  <span className="seg upo-seg" title={'무엇을 최대화할지\n딜 기여 = 한타 딜 × 버티는 사이클 수 — 죽으면 딜을 못 넣으므로 체력·방어도 기여로 계산 (권장)\n한타 딜 = 순수 화력만 — 생존을 무시해 셔츠(체력)를 끝까지 안 삼'}>
-                    <span className="lbl">목표</span>
-                    {([['contrib', '딜 기여'], ['burst', '한타 딜']] as const).map(([v, label]) => (
-                      <button key={v} className={upoObj === v ? 'on' : ''} onClick={() => setUpoObj(v)}>{label}</button>
-                    ))}
-                  </span>
-                )}
-                <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
-                  <span className="lbl">상대</span>
-                  {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
-                    <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
-                  ))}
-                </span>
-              </div>
-            </div>
-            {upoGearOpen && upoGearRows.length > 0 && (
-              <div className="upo-gearedit">
-                {upoGearRows.map((r) => {
-                  const cur = upoItems[r.slot] ?? r.defIdx
-                  return (
-                    <div key={r.slot} className="upo-ge-row">
-                      <span className="upo-ge-lbl">{r.label}</span>
-                      <select value={cur} onChange={(e) => setUpoItems((m) => ({ ...m, [r.slot]: +e.target.value }))}>
-                        {r.cands.map((c, i) => (
-                          <option key={i} value={i}>{c.name} ({Math.round((c.pct || 0) * 100)}%)</option>
-                        ))}
-                      </select>
-                      {r.neck && (
-                        <em className="upo-ge-note">
-                          {upoKind === 'attack' ? '공목' : '방목'} 성향 기본
-                          {!r.matched && ' · 표본 없어 실착용 기준'}
-                        </em>
-                      )}
-                    </div>
-                  )
-                })}
-                <button className="upo-ge-reset" onClick={() => setUpoItems({})}
-                  disabled={Object.keys(upoItems).length === 0}>기본으로</button>
-              </div>
-            )}
-            {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔.
-                세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
-            <div className="upo-roads">
-              {(['eff', 'greedy', 'rank'] as const).map((v) => {
-                const { steps, miles: mm } = upoAll?.[v] ?? { steps: [], miles: new Map<number, { label: string; tone: string; strong?: boolean }[]>() }
-                const active = upoView === v
-                const slots = gearSlotsOf(slug, tier)
-                return (
-                  <div key={v} className={active ? 'upo-road' : 'upo-road off'}
-                    onMouseLeave={active ? () => setUpoHover(null) : undefined}>
-                    {!steps.length && <span className="upo-empty">데이터 없음</span>}
-                    {steps.map((s, i) => {
-                      const miles = mm.get(i)
-                      return (
-                        <Fragment key={i}>
-                          <div className={miles ? 'upo-buy mile' : 'upo-buy'}
-                            onMouseEnter={active ? () => setUpoHover(i) : undefined}
-                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강${s.charLv != null ? ` · Lv.${i > 0 ? steps[i - 1].charLv ?? 0 : 0}→${s.charLv}` : ''} · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`
-                              + (upoKind === 'attack' && upoObj === 'contrib' && s.surv != null
-                                ? `\n= 한타 딜 ${fmt(s.per[0] != null ? s.value / s.surv : 0)} × 생존 ${s.surv.toFixed(2)}사이클` : '')
-                              + (s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : '')}>
-                            <em>{i + 1}</em>
-                            <img src={itemIcon(slots[s.slot]?.[s.item ?? 0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
-                            <span className="t">
-                              <b className={UPO_TONE[s.slot] ?? ''}>{slots[s.slot]?.[s.item ?? 0]?.name ?? UPO_SHORT[s.slot] ?? s.slot}</b>
-                              <i><u>{UPO_SHORT[s.slot] ?? s.slot} {s.level}강</u>{s.charLv != null && <span className="lv">Lv.{s.charLv}</span>} · {upoVal(s.value, upoKind)}</i>
-                            </span>
-                          </div>
-                          {miles && (
-                            <div className={`upo-cut ${miles[0].tone}`}
-                              title={upoKind === 'attack'
-                                ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)\n궁없이 원콤 = 궁을 아껴도 사이클만으로 처치 (최상)'
-                                : 'N컷 = 상대의 사이클+궁 N번을 버티는 체력·방어'}>
-                              {miles.map((x) => (
-                                <b key={x.label} className={x.strong ? `${x.tone} noult` : x.tone}>✓ {x.label}</b>
-                              ))}
-                              <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인{upoKind === 'attack' && miles.every((x) => !x.strong) ? ' · 궁 포함' : ''}</small>
-                            </div>
-                          )}
-                        </Fragment>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
-            <UpgradeChart kind={upoKind} marks={upoMarks} hpCurve={upoHpCurve} activeTone={upoView} hoverIdx={upoHover} mileIdx={upoMileIdx} curves={[
-              { tone: 'eff', steps: upgradeOrders.efficiency },
-              { tone: 'greedy', steps: upgradeOrders.greedy },
-              { tone: 'rank', steps: upgradeOrders.ranker },
-            ]} />
-            <div className="upo-legend" title={'완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이\n신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정'}>
-              {([
-                ['추천 (효율)', 'eff', upgradeOrders.efficiency],
-                ['탐욕', 'greedy', upgradeOrders.greedy],
-                ['랭커 실구매', 'rank', upgradeOrders.ranker],
-              ] as [string, 'eff' | 'greedy' | 'rank', UpgradeStep[]][]).map(([label, tone, steps]) => (
-                <button key={tone} className={`upo-leg ${tone} ${upoView === tone ? 'on' : ''}`} onClick={() => setUpoView(tone)}>
-                  {label} <span className="upo-leg-avg">{simView === 'attack' ? (upoObj === 'contrib' ? '평균 기여' : '평균 딜') : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
-                </button>
-              ))}
-              <span className="upo-leg-note">순서를 클릭해 로드맵 전환 · 평균 = 코인 가중 경로 평균</span>
-            </div>
-          </section>
-        </>
       )}
 
       {/* 수동 세팅 */}

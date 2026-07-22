@@ -100,6 +100,13 @@ export function fullGear(slug: string, tier: Tier = '0'): GearState {
   return gear
 }
 
+/** 강화 순서의 첫 n개 구매를 적용한 장비 상태 (순서대로 슬롯별 최종 레벨) */
+export function gearAtStep(steps: UpgradeStep[], n: number): GearState {
+  const gear: GearState = {}
+  for (const s of steps.slice(0, Math.max(0, n))) gear[s.slot] = { item: s.item ?? 0, level: s.level }
+  return gear
+}
+
 // 우선 구매 특전 (3번째 구매 시점부터)
 const HAND_PERK_PEN = 0.03 // 장갑 3레벨 → 방어 관통력 +3%
 const CHEST_PERK_HP = 0.05 // 셔츠 3레벨 → 체력 +5%
