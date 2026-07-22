@@ -1110,7 +1110,7 @@ export default function App() {
                         <Fragment key={i}>
                           <div className={miles ? 'upo-buy mile' : 'upo-buy'}
                             onMouseEnter={active ? () => setUpoHover(i) : undefined}
-                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`
+                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강${s.charLv != null ? ` · Lv.${i > 0 ? steps[i - 1].charLv ?? 0 : 0}→${s.charLv}` : ''} · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`
                               + (upoKind === 'attack' && upoObj === 'contrib' && s.surv != null
                                 ? `\n= 한타 딜 ${fmt(s.per[0] != null ? s.value / s.surv : 0)} × 생존 ${s.surv.toFixed(2)}사이클` : '')
                               + (s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : '')}>
@@ -1118,7 +1118,7 @@ export default function App() {
                             <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
                             <span className="t">
                               <b className={UPO_TONE[s.slot] ?? ''}>{slots[s.slot]?.[0]?.name ?? UPO_SHORT[s.slot] ?? s.slot}</b>
-                              <i><u>{UPO_SHORT[s.slot] ?? s.slot} {s.level}강</u> · {upoVal(s.value, upoKind)}</i>
+                              <i><u>{UPO_SHORT[s.slot] ?? s.slot} {s.level}강</u>{s.charLv != null && <span className="lv">Lv.{s.charLv}</span>} · {upoVal(s.value, upoKind)}</i>
                             </span>
                           </div>
                           {miles && (

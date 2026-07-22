@@ -404,6 +404,7 @@
 .upo-buy .t b.atk { color: var(--dealer); }
 .upo-buy .t i { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--text-3); white-space: nowrap; }
 .upo-buy .t i u { text-decoration: none; color: var(--text-2); }
+.upo-buy .t i .lv { margin-left: 5px; color: var(--accent-2); opacity: 0.85; }
 
 /* 컷 달성 구분선 — 로드맵을 페이즈로 나눔 */
 .upo-cut {
