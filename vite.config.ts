@@ -7,4 +7,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/cyphers-damage-calculator/' : '/',
   plugins: [react()],
+  // 프리뷰 하네스가 PORT 환경변수로 포트를 할당(autoPort) — 없으면 기본 5173
+  server: { port: Number(process.env.PORT) || 5173, strictPort: true },
 }))
