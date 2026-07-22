@@ -612,6 +612,22 @@ const UTIL_SLOT = '발(이동)'
 // 레벨 기준이라 부위별 레벨 상승량이 다른 캐릭터마다 다른 구매 번째에 걸린다.
 const HP_SLOT = '가슴(체력)'
 const HP_BY_LEVEL = 20
+
+const NECK_SLOT = '목'
+/**
+ * 로드맵이 쓸 슬롯별 아이템 인덱스 — 목걸이만 성향에 맞춰 고르고 나머지는 최다 착용(0).
+ * 공격 로드맵=공목(방어% 없음), 방어 로드맵=방목. 탱커의 공격 로드맵이 방목을 낀 채
+ * 딜을 최적화하던 모순을 제거한다(딜 최적화는 공목 착용이 전제).
+ */
+function upoItemIdx(slots: Record<string, GearItem[]>, kind: 'attack' | 'defense'): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [slot, cands] of Object.entries(slots)) {
+    if (slot !== NECK_SLOT || !cands.length) { out[slot] = 0; continue }
+    const i = cands.findIndex((c) => (kind === 'attack' ? !isDefenseNeck(c) : isDefenseNeck(c)))
+    out[slot] = i >= 0 ? i : 0 // 해당 성향 목걸이가 없으면 최다 착용으로 폴백
+  }
+  return out
+}
 // 슬롯별 필요 레벨 예외 — 신발 2강은 20레벨 (기본 규칙 10×(L−1)의 예외)
 const REQ_OVERRIDE: Record<string, number[]> = { [UTIL_SLOT]: [0, 20] }
 const reqLevelOf = (slot: string, itemLevel: number) => REQ_OVERRIDE[slot]?.[itemLevel - 1] ?? reqLevel(itemLevel)
@@ -637,6 +653,7 @@ export interface UpgradeStep {
   perHp?: number[] // 공격 전용: 그룹별[딜러,방탱,회탱] 상대 평균 HP
   surv?: number // 공격 전용: 그 시점 내 생존 사이클 수 (딜 기여의 배수)
   charLv?: number // 이 구매 직후의 캐릭터 레벨 (레벨 제한·셔츠 관행 확인용)
+  item?: number // 그 슬롯에서 고른 후보 인덱스 (목걸이는 성향에 따라 0이 아님)
 }
 
 /** 상대 진행도 — number=그 구매 수로 고정 / 'sync'=각 단계마다 나와 같은 구매 수 */
@@ -747,6 +764,8 @@ export function optimizeUpgradeOrder(
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
   const { value, snap } = upgradeEvaluators(slug, kind, kit, tier, objective)
+  const idx = upoItemIdx(slots, kind) // 목걸이 성향 고정 (공격=공목 / 방어=방목)
+  const cand = (slot: string) => slots[slot]?.[idx[slot] ?? 0]
   // i번째(0-base) 구매 시점의 상대 진행도 — 'sync'면 나와 같은 구매 수
   const maxOpp = maxStageOf(slug, tier)
   const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
@@ -762,9 +781,9 @@ export function optimizeUpgradeOrder(
   let cumCoin = 0
 
   const buy = (slot: string, level: number, coin: number, val: number, gain: number, st: number) => {
-    gear[slot] = { item: 0, level }
+    gear[slot] = { item: idx[slot] ?? 0, level }
     cumCoin += coin
-    steps.push({ slot, level, coin, cumCoin, value: val, gain, ...snap(gear, st), charLv: charLevel(gear) })
+    steps.push({ slot, level, coin, cumCoin, value: val, gain, ...snap(gear, st), charLv: charLevel(gear), item: idx[slot] ?? 0 })
   }
 
   for (;;) {
@@ -775,20 +794,20 @@ export function optimizeUpgradeOrder(
     const base = value(gear, st)
     // 핀 도달 시 신발 우선 구매 (레벨 요건 미달이면 충족될 때까지 자연 지연)
     const pin = pins[pinIdx]
-    const shoe = slots[UTIL_SLOT]?.[0]
+    const shoe = cand(UTIL_SLOT)
     if (pin && shoe && steps.length >= pin.at && pin.level <= shoe.levels.length && lv >= reqLevelOf(UTIL_SLOT, pin.level)) {
       const coin = shoe.levels[pin.level - 1].coin
-      const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } }, st)
+      const val = value({ ...gear, [UTIL_SLOT]: { item: idx[UTIL_SLOT] ?? 0, level: pin.level } }, st)
       buy(UTIL_SLOT, pin.level, coin, val, val - base, st)
       pinIdx++
       continue
     }
     // 셔츠 관행: 레벨 20을 넘기기 전에 1강 확보 (셔츠 +4 → 딱 20에 걸침)
-    const shirt = slots[HP_SLOT]?.[0]
+    const shirt = cand(HP_SLOT)
     if (shirt && (gear[HP_SLOT]?.level ?? 0) === 0 && steps.length > 0
       && lv >= HP_BY_LEVEL - (LEVEL_GAIN[HP_SLOT] ?? 4) && reqLevelOf(HP_SLOT, 1) <= lv) {
       const coin = shirt.levels[0].coin
-      const val = value({ ...gear, [HP_SLOT]: { item: 0, level: 1 } }, st)
+      const val = value({ ...gear, [HP_SLOT]: { item: idx[HP_SLOT] ?? 0, level: 1 } }, st)
       buy(HP_SLOT, 1, coin, val, val - base, st)
       continue
     }
@@ -796,14 +815,14 @@ export function optimizeUpgradeOrder(
     for (const [slot, cands] of Object.entries(slots)) {
       if (slot === UTIL_SLOT && pins.length) continue // 신발은 핀으로만 구매
       if (slot === HP_SLOT && steps.length === 0) continue // 첫 구매는 화력에 (관행)
-      const item = cands[0]
+      const item = cands[idx[slot] ?? 0]
       if (!item) continue
       const cur = gear[slot]?.level ?? 0
       const next = cur + 1
       if (next > item.levels.length) continue // 이미 최대
       if (lv < reqLevelOf(slot, next)) continue // 구매 필요 레벨 미달
       const coin = item.levels[next - 1].coin
-      const trial: GearState = { ...gear, [slot]: { item: 0, level: next } }
+      const trial: GearState = { ...gear, [slot]: { item: idx[slot] ?? 0, level: next } }
       const val = value(trial, st)
       const gain = val - base
       const score = mode === 'greedy' ? gain : gain / (coin || 1)
@@ -813,7 +832,7 @@ export function optimizeUpgradeOrder(
       // 다른 슬롯이 모두 끝났는데 신발 핀이 남았으면 위치 무관하게 소진
       if (pin && shoe && pin.level <= shoe.levels.length && lv >= reqLevelOf(UTIL_SLOT, pin.level)) {
         const coin = shoe.levels[pin.level - 1].coin
-        const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } }, st)
+        const val = value({ ...gear, [UTIL_SLOT]: { item: idx[UTIL_SLOT] ?? 0, level: pin.level } }, st)
         buy(UTIL_SLOT, pin.level, coin, val, val - base, st)
         pinIdx++
         continue
@@ -837,21 +856,22 @@ export function evalUpgradePath(
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
   const { value, snap } = upgradeEvaluators(slug, kind, kit, tier, objective)
+  const idx = upoItemIdx(slots, kind) // 최적 순서와 같은 목걸이 기준이어야 비교가 공정
   const maxOpp = maxStageOf(slug, tier)
   const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
   let cumCoin = 0
   for (const p of path) {
-    const item = slots[p.slot]?.[0]
+    const item = slots[p.slot]?.[idx[p.slot] ?? 0]
     if (!item || p.level < 1 || p.level > item.levels.length) continue // 장비 외(소모품 등) 스킵
     const st = stageAt(steps.length)
     const base = value(gear, st) // Δ는 같은 상대 진행도 기준 (optimizeUpgradeOrder와 동일)
-    gear[p.slot] = { item: 0, level: p.level }
+    gear[p.slot] = { item: idx[p.slot] ?? 0, level: p.level }
     const coin = item.levels[p.level - 1].coin
     cumCoin += coin
     const val = value(gear, st)
-    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, ...snap(gear, st), charLv: charLevel(gear) })
+    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, ...snap(gear, st), charLv: charLevel(gear), item: idx[p.slot] ?? 0 })
   }
   return steps
 }

@@ -322,6 +322,7 @@
 .upo { padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
 .upo-note { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .upo-note b { color: var(--text-2); font-weight: 600; }
+.upo-note .upo-warn { font-style: normal; color: var(--gold); margin-left: 2px; cursor: help; }
 .upo-hint { margin-left: auto; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
 .upo-seg { align-items: center; padding-left: 8px; cursor: help; }
 .upo-seg .lbl { margin-right: 4px; }

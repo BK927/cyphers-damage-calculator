@@ -549,6 +549,16 @@ export default function App() {
   const [upoObj, setUpoObj] = useState<UpoObjective>('contrib')
   const [methodOpen, setMethodOpen] = useState(true)
   const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
+  // 로드맵이 실제로 끼는 목걸이 — 탭 성향(공격=공목/방어=방목)에 맞는 후보가
+  // 메타에 없으면 폴백되므로, 라벨은 탭이 아니라 '실제 고른 것'에서 유도해야 정확
+  const upoNeck = useMemo(() => {
+    const cands = gearSlotsOf(slug, tier)['목']
+    if (!cands?.length) return null
+    const isDef = (c: (typeof cands)[number]) => (c.total.defenseReduction ?? 0) > 0
+    const i = cands.findIndex((c) => (simView === 'attack' ? !isDef(c) : isDef(c)))
+    const chosen = cands[i >= 0 ? i : 0]
+    return { name: chosen.name, def: isDef(chosen), matched: i >= 0 }
+  }, [slug, tier, simView])
 
   // 캐릭터 모달 열림 동안 배경 스크롤 잠금
   useEffect(() => {
@@ -1076,7 +1086,14 @@ export default function App() {
           />
           <section className="panel upo">
             <div className="upo-note">
-              {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
+              <span title={upoNeck
+                ? `이 로드맵이 끼는 목걸이: ${upoNeck.name}`
+                  + (upoNeck.matched ? '' : `\n주간 통계에 ${simView === 'attack' ? '공목' : '방목'} 착용 표본이 없어 실착용 목걸이로 계산합니다`)
+                : undefined}>
+                {upoNeck ? `${upoNeck.def ? '방목' : '공목'} 착용 기준` : '착용 기준'}
+                {upoNeck && !upoNeck.matched && <em className="upo-warn">＊</em>}
+              </span>
+              {' · 킷 '}<b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
               {simView === 'attack' && (
                 <span className="seg upo-seg" title={'무엇을 최대화할지\n딜 기여 = 한타 딜 × 버티는 사이클 수 — 죽으면 딜을 못 넣으므로 체력·방어도 기여로 계산 (권장)\n한타 딜 = 순수 화력만 — 생존을 무시해 셔츠(체력)를 끝까지 안 삼'}>
                   <span className="lbl">목표</span>
@@ -1115,9 +1132,9 @@ export default function App() {
                                 ? `\n= 한타 딜 ${fmt(s.per[0] != null ? s.value / s.surv : 0)} × 생존 ${s.surv.toFixed(2)}사이클` : '')
                               + (s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : '')}>
                             <em>{i + 1}</em>
-                            <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
+                            <img src={itemIcon(slots[s.slot]?.[s.item ?? 0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
                             <span className="t">
-                              <b className={UPO_TONE[s.slot] ?? ''}>{slots[s.slot]?.[0]?.name ?? UPO_SHORT[s.slot] ?? s.slot}</b>
+                              <b className={UPO_TONE[s.slot] ?? ''}>{slots[s.slot]?.[s.item ?? 0]?.name ?? UPO_SHORT[s.slot] ?? s.slot}</b>
                               <i><u>{UPO_SHORT[s.slot] ?? s.slot} {s.level}강</u>{s.charLv != null && <span className="lv">Lv.{s.charLv}</span>} · {upoVal(s.value, upoKind)}</i>
                             </span>
                           </div>
