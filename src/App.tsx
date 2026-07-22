@@ -861,7 +861,7 @@ export default function App() {
   // 차트 컷 기준선: 공격=원킬선(평균 HP), 방어=정수 컷(1컷/2컷…)
   const upoMarks = useMemo(() => {
     if (!upgradeOrders) return []
-    if (upoKind === 'attack') return upoHps ? [{ y: upoHps.overall, label: '원킬선 (평균 HP)' }] : []
+    if (upoKind === 'attack') return upoHps ? [{ y: upoHps.overall, label: '원콤선 (상대 평균 HP)' }] : []
     const vals = [...upgradeOrders.efficiency, ...upgradeOrders.greedy, ...upgradeOrders.ranker].map((s) => s.value)
     if (!vals.length) return []
     const hi = Math.max(...vals)
@@ -882,12 +882,12 @@ export default function App() {
       }
       if (upoKind === 'attack') {
         if (!upoHps) return m
-        // 종합 + 그룹별: 딜값이 해당 그룹 평균 HP를 처음 넘는 구매
+        // 종합 + 그룹별: 사이클+궁 딜이 해당 그룹 평균 HP를 처음 넘는 구매 (원콤 = 한 콤보 처치)
         const goals: [string, string, number, (s: UpgradeStep) => number][] = [
-          ['평균 원킬', 'gold', upoHps.overall, (s) => s.value],
-          ['딜러 원킬', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
-          ['방탱 원킬', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
-          ['회탱 원킬', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
+          ['평균 원콤', 'gold', upoHps.overall, (s) => s.value],
+          ['딜러 원콤', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
+          ['방탱 원콤', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
+          ['회탱 원콤', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
         ]
         for (const [label, tone, hp, get] of goals) {
           if (hp <= 0 || get(steps[0]) - (steps[0].gain || 0) >= hp) continue
@@ -1083,9 +1083,12 @@ export default function App() {
                             </span>
                           </div>
                           {miles && (
-                            <div className={`upo-cut ${miles[0].tone}`}>
+                            <div className={`upo-cut ${miles[0].tone}`}
+                              title={upoKind === 'attack'
+                                ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)'
+                                : 'N컷 = 상대의 사이클+궁 N번을 버티는 체력·방어'}>
                               {miles.map((x) => <b key={x.label} className={x.tone}>✓ {x.label}</b>)}
-                              <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인</small>
+                              <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인{upoKind === 'attack' ? ' · 궁 포함' : ''}</small>
                             </div>
                           )}
                         </Fragment>
