@@ -348,9 +348,8 @@
 }
 .upo-ge-reset:hover:not(:disabled) { border-color: var(--line-2); color: var(--text-2); }
 .upo-ge-reset:disabled { opacity: 0.4; cursor: default; }
-.upo-seg { align-items: center; padding-left: 8px; cursor: help; }
-.upo-seg .lbl { margin-right: 4px; }
 .upo-seg button { font-size: 11px; padding: 3px 9px; }
+.upo-ctl[title] { cursor: help; }
 
 /* 값 곡선 차트 */
 .upo-chart { width: 100%; height: auto; display: block; }

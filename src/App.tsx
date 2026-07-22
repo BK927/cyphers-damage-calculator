@@ -1115,11 +1115,13 @@ export default function App() {
                   기준 장비 {upoGearOpen ? '▴' : '▾'}
                 </button>
               )}
-              <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
-                <span className="lbl">상대</span>
-                {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
-                  <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
-                ))}
+              <span className="upo-ctl" title={'상대 세팅\n만렙 = 장비를 다 갖춘 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n동일레벨 = 상대도 나와 같은 레벨 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤이 거의 사라짐'}>
+                <span className="lbl">상대 세팅</span>
+                <span className="seg upo-seg">
+                  {([['full', '만렙'], ['sync', '동일레벨']] as const).map(([v, label]) => (
+                    <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
+                  ))}
+                </span>
               </span>
             </div>
           </div>
