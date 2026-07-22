@@ -43,6 +43,7 @@ import {
   type SkillClass,
   type Target,
   type UpgradeStep,
+  type UpoObjective,
 } from './recommend'
 import type { SkillMode } from './types'
 
@@ -543,6 +544,9 @@ export default function App() {
   // 강화 순서의 상대 진행도. 기본 full — 상대가 나와 같이 크면 원콤이 항상 참이라
   // 마일스톤이 정보를 잃음("완성된 상대를 한 콤보에 잡는 시점"이 의미 있는 질문)
   const [upoOpp, setUpoOpp] = useState<'sync' | 'full'>('full')
+  // 공격 목표값. 기본 contrib(총 딜 기여 = 딜 × 생존 사이클) — burst만 쓰면
+  // 죽는 걸 계산에 안 넣어 셔츠(체력)를 끝까지 안 사는 문제가 있음
+  const [upoObj, setUpoObj] = useState<UpoObjective>('contrib')
   const [methodOpen, setMethodOpen] = useState(true)
   const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
 
@@ -859,11 +863,11 @@ export default function App() {
     const rankerPath = (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level }))
     const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier) // 상대 진행도
     return {
-      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy', opp),
-      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency', opp),
-      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath, opp),
+      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy', opp, upoObj),
+      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency', opp, upoObj),
+      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath, opp, upoObj),
     }
-  }, [setting, slug, simView, upoKit, tier, upoOpp])
+  }, [setting, slug, simView, upoKit, tier, upoOpp, upoObj])
   // 차트 컷 기준선: 공격=상대 HP 곡선(hpCurve)으로 대체, 방어=정수 컷(1컷/2컷…)
   const upoMarks = useMemo(() => {
     if (!upgradeOrders || upoKind === 'attack') return []
@@ -937,10 +941,11 @@ export default function App() {
   )
   // 공격 차트의 원콤 기준선 = 선택 순서의 단계별 상대 HP (풀빌드 모드면 평평한 선)
   const upoHpCurve = useMemo(() => {
-    if (!upoAll || upoKind !== 'attack') return undefined
+    // 딜 기여(딜×생존)는 상대 HP와 단위가 달라 비교 불가 → 화력 모드에서만 원콤선 표시
+    if (!upoAll || upoKind !== 'attack' || upoObj !== 'burst') return undefined
     const pts = upoAll[upoView].steps.filter((s) => s.hp != null).map((s) => ({ x: s.cumCoin, y: s.hp as number }))
     return pts.length > 1 ? pts : undefined
-  }, [upoAll, upoView, upoKind])
+  }, [upoAll, upoView, upoKind, upoObj])
 
   return (
     <div className="app">
@@ -1072,13 +1077,21 @@ export default function App() {
           <section className="panel upo">
             <div className="upo-note">
               {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
+              {simView === 'attack' && (
+                <span className="seg upo-seg" title={'무엇을 최대화할지\n딜 기여 = 한타 딜 × 버티는 사이클 수 — 죽으면 딜을 못 넣으므로 체력·방어도 기여로 계산 (권장)\n한타 딜 = 순수 화력만 — 생존을 무시해 셔츠(체력)를 끝까지 안 삼'}>
+                  <span className="lbl">목표</span>
+                  {([['contrib', '딜 기여'], ['burst', '한타 딜']] as const).map(([v, label]) => (
+                    <button key={v} className={upoObj === v ? 'on' : ''} onClick={() => setUpoObj(v)}>{label}</button>
+                  ))}
+                </span>
+              )}
               <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
                 <span className="lbl">상대</span>
                 {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
                   <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
                 ))}
               </span>
-              <span className="upo-hint">Y = {simView === 'attack' ? '한타 딜' : '생존 컷'} · X = 누적 코인</span>
+              <span className="upo-hint">Y = {simView === 'attack' ? (upoObj === 'contrib' ? '총 딜 기여' : '한타 딜') : '생존 컷'} · X = 누적 코인</span>
             </div>
             {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔.
                 세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
@@ -1097,7 +1110,10 @@ export default function App() {
                         <Fragment key={i}>
                           <div className={miles ? 'upo-buy mile' : 'upo-buy'}
                             onMouseEnter={active ? () => setUpoHover(i) : undefined}
-                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})${s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : ''}`}>
+                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`
+                              + (upoKind === 'attack' && upoObj === 'contrib' && s.surv != null
+                                ? `\n= 한타 딜 ${fmt(s.per[0] != null ? s.value / s.surv : 0)} × 생존 ${s.surv.toFixed(2)}사이클` : '')
+                              + (s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : '')}>
                             <em>{i + 1}</em>
                             <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
                             <span className="t">
@@ -1135,7 +1151,7 @@ export default function App() {
                 ['랭커 실구매', 'rank', upgradeOrders.ranker],
               ] as [string, 'eff' | 'greedy' | 'rank', UpgradeStep[]][]).map(([label, tone, steps]) => (
                 <button key={tone} className={`upo-leg ${tone} ${upoView === tone ? 'on' : ''}`} onClick={() => setUpoView(tone)}>
-                  {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 딜' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
+                  {label} <span className="upo-leg-avg">{simView === 'attack' ? (upoObj === 'contrib' ? '평균 기여' : '평균 딜') : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
                 </button>
               ))}
               <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 위 로드맵이 바뀜 · 신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정</span>

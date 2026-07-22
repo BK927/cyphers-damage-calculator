@@ -630,6 +630,7 @@ export interface UpgradeStep {
   perNoUlt?: number[] // 공격 전용: 궁 제외 그룹별 딜
   hp?: number // 공격 전용: 그 시점 종합 상대 평균 HP (원콤 기준선)
   perHp?: number[] // 공격 전용: 그룹별[딜러,방탱,회탱] 상대 평균 HP
+  surv?: number // 공격 전용: 그 시점 내 생존 사이클 수 (딜 기여의 배수)
 }
 
 /** 상대 진행도 — number=그 구매 수로 고정 / 'sync'=각 단계마다 나와 같은 구매 수 */
@@ -671,35 +672,49 @@ function upoAtkFields(slug: string, tier: Tier, stage: number): UpoAtkFields {
  * L강 구매 필요 캐릭 레벨 = 10×(L−1), 캐릭 레벨 = 강화 누적(부위별 LEVEL_GAIN).
  * 상대(필드/타깃)는 stage별로 캐싱해 재사용(oppStage='sync'면 단계마다 상대도 함께 성장).
  */
-// 강화 목표값 — defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜.
-// value=종합(선택 기준), per=그룹별(공격: 딜러/방탱/회탱 딜, 방어: 딜러/탱커 생존 컷).
+/**
+ * 공격 목표값 종류.
+ * - burst: 한 사이클+궁 기대딜 (원콤 판정용 순수 화력)
+ * - contrib: 총 딜 기여 = 사이클 딜 × 버티는 사이클 수. 죽으면 딜을 못 넣으므로
+ *   체력·방어도 딜 기여를 올린다 — burst만 쓰면 최적화가 셔츠를 끝까지 안 삼.
+ */
+export type UpoObjective = 'burst' | 'contrib'
+
+// 강화 목표값 — defense=생존 사이클 수(HP/받는피해), attack=위 UpoObjective.
+// value=종합(선택 기준), per/noUlt/hp는 항상 **화력 기준**(원콤 마일스톤이 화력 질문이므로).
 // 상대(필드/타깃)는 stage를 받아 캐시에서 꺼내 씀 — 같은 stage면 세 순서가 함께 재사용.
 function upgradeEvaluators(
   slug: string,
   kind: 'attack' | 'defense',
   kit: KitOption | null,
   tier: Tier,
+  objective: UpoObjective = 'contrib',
 ): {
   value: (gear: GearState, stage: number) => number
-  // 채택된 단계의 그룹별·궁제외 값 + 그 시점 상대 HP
-  snap: (gear: GearState, stage: number) => Pick<UpgradeStep, 'per' | 'noUlt' | 'perNoUlt' | 'hp' | 'perHp'>
+  // 채택된 단계의 그룹별·궁제외 값 + 그 시점 상대 HP + 생존 사이클
+  snap: (gear: GearState, stage: number) => Pick<UpgradeStep, 'per' | 'noUlt' | 'perNoUlt' | 'hp' | 'perHp' | 'surv'>
 } {
+  // 내가 버티는 사이클 수 (공격/방어 공용) — 공격 탭에선 공격킷을 낀 채의 생존
+  const survCycles = (gear: GearState, atks: IncomingAttacker[]) => {
+    const dmg = incomingSim(atks, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
+    return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
+  }
   if (kind === 'defense') {
-    const surv = (atks: IncomingAttacker[], gear: GearState) => {
-      const dmg = incomingSim(atks, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
-      return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
-    }
     return {
-      value: (g, st) => surv(upoDefFields(slug, tier, st).all, g),
+      value: (g, st) => survCycles(g, upoDefFields(slug, tier, st).all),
       snap: (g, st) => {
         const f = upoDefFields(slug, tier, st)
-        return { per: [surv(f.dealer, g), surv(f.tank, g)] }
+        return { per: [survCycles(g, f.dealer), survCycles(g, f.tank)] }
       },
     }
   }
   const sim1 = (t: Target, gear: GearState) => simulate(slug, attackerFrom(slug, gear, kit, tier), t, '1st')
   return {
-    value: (g, st) => sim1(upoAtkFields(slug, tier, st).merged, g).cyclePlusUlt,
+    value: (g, st) => {
+      const burst = sim1(upoAtkFields(slug, tier, st).merged, g).cyclePlusUlt
+      if (objective === 'burst') return burst
+      return burst * survCycles(g, upoDefFields(slug, tier, st).all)
+    },
     snap: (g, st) => {
       const { ts, merged } = upoAtkFields(slug, tier, st)
       const groups = ts.map((t) => sim1(t, g))
@@ -709,6 +724,7 @@ function upgradeEvaluators(
         perNoUlt: groups.map((r) => r.cycle),
         hp: targetHP(merged),
         perHp: ts.map(targetHP),
+        surv: survCycles(g, upoDefFields(slug, tier, st).all),
       }
     },
   }
@@ -721,9 +737,10 @@ export function optimizeUpgradeOrder(
   tier: Tier,
   mode: 'greedy' | 'efficiency',
   oppStage: OppStage = 'sync',
+  objective: UpoObjective = 'contrib',
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
-  const { value, snap } = upgradeEvaluators(slug, kind, kit, tier)
+  const { value, snap } = upgradeEvaluators(slug, kind, kit, tier, objective)
   // i번째(0-base) 구매 시점의 상대 진행도 — 'sync'면 나와 같은 구매 수
   const maxOpp = maxStageOf(slug, tier)
   const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
@@ -800,9 +817,10 @@ export function evalUpgradePath(
   tier: Tier,
   path: { slot: string; level: number }[],
   oppStage: OppStage = 'sync',
+  objective: UpoObjective = 'contrib',
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
-  const { value, snap } = upgradeEvaluators(slug, kind, kit, tier)
+  const { value, snap } = upgradeEvaluators(slug, kind, kit, tier, objective)
   const maxOpp = maxStageOf(slug, tier)
   const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
   const gear: GearState = {}
