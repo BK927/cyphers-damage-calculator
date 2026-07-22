@@ -1074,7 +1074,7 @@ export default function App() {
                         <Fragment key={i}>
                           <div className={miles ? 'upo-buy mile' : 'upo-buy'}
                             onMouseEnter={active ? () => setUpoHover(i) : undefined}
-                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})`}>
+                            title={`${i + 1}번째 구매 · ${s.slot} ${s.level}강 · ${fmt(s.coin)}코인 (누적 ${fmt(s.cumCoin)}) · ${upoVal(s.value, upoKind, 2)} (${upoGain(s.gain, upoKind)})${s.slot === '발(이동)' ? '\n이동속도는 딜·생존 계산 밖 유틸 → 랭커 실구매 타이밍에 고정' : ''}`}>
                             <em>{i + 1}</em>
                             <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
                             <span className="t">
@@ -1110,7 +1110,7 @@ export default function App() {
                   {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 딜' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
                 </button>
               ))}
-              <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 위 로드맵이 바뀜</span>
+              <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 위 로드맵이 바뀜 · 신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정</span>
             </div>
           </section>
         </>

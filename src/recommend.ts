@@ -604,6 +604,12 @@ const LEVEL_GAIN: Record<string, number> = {
   '목': 2, '장신구1': 1, '장신구2': 1, '장신구3': 1, '장신구4': 1, '장신구ALL': 1,
 }
 const reqLevel = (itemLevel: number) => 10 * (itemLevel - 1) // L강 구매 필요 캐릭터 레벨
+// 유틸 슬롯(이동속도) — 딜·생존 목표값에 기여하지 않아 최적화가 항상 뒤로 미룸
+// → 구매 시점을 랭커 실구매 위치에 고정(pin)해 유틸 가치를 실제 행동에서 빌려옴
+const UTIL_SLOT = '발(이동)'
+// 슬롯별 필요 레벨 예외 — 신발 2강은 20레벨 (기본 규칙 10×(L−1)의 예외)
+const REQ_OVERRIDE: Record<string, number[]> = { [UTIL_SLOT]: [0, 20] }
+const reqLevelOf = (slot: string, itemLevel: number) => REQ_OVERRIDE[slot]?.[itemLevel - 1] ?? reqLevel(itemLevel)
 
 // 캐릭터 레벨 = 산 강화의 누적 (부위별 상승량 합)
 function charLevel(gear: GearState): number {
@@ -668,21 +674,45 @@ export function optimizeUpgradeOrder(
   const slots = gearSlotsOf(slug, tier)
   const { value, per } = upgradeEvaluators(slug, kind, kit, tier)
 
+  // 신발(유틸) 핀: 랭커 실구매 순서에서 발(이동)이 등장하는 위치 (없으면 핀 없음 → 기존 동작)
+  const pins = (buildBySlug[slug]?.order ?? [])
+    .map((o, i) => ({ slot: o.slot, level: o.level, at: i }))
+    .filter((o) => o.slot === UTIL_SLOT)
+  let pinIdx = 0
+
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
   let cumCoin = 0
   let base = value(gear) // 현 시점 값
 
+  const buy = (slot: string, level: number, coin: number, val: number, gain: number) => {
+    gear[slot] = { item: 0, level }
+    cumCoin += coin
+    steps.push({ slot, level, coin, cumCoin, value: val, gain, per: per(gear) })
+    base = val
+  }
+
   for (;;) {
     const lv = charLevel(gear)
+    // 핀 도달 시 신발 우선 구매 (레벨 요건 미달이면 충족될 때까지 자연 지연)
+    const pin = pins[pinIdx]
+    const shoe = slots[UTIL_SLOT]?.[0]
+    if (pin && shoe && steps.length >= pin.at && pin.level <= shoe.levels.length && lv >= reqLevelOf(UTIL_SLOT, pin.level)) {
+      const coin = shoe.levels[pin.level - 1].coin
+      const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } })
+      buy(UTIL_SLOT, pin.level, coin, val, val - base)
+      pinIdx++
+      continue
+    }
     let best: { slot: string; level: number; coin: number; val: number; gain: number; score: number } | null = null
     for (const [slot, cands] of Object.entries(slots)) {
+      if (slot === UTIL_SLOT && pins.length) continue // 신발은 핀으로만 구매
       const item = cands[0]
       if (!item) continue
       const cur = gear[slot]?.level ?? 0
       const next = cur + 1
       if (next > item.levels.length) continue // 이미 최대
-      if (lv < reqLevel(next)) continue // 구매 필요 레벨 미달
+      if (lv < reqLevelOf(slot, next)) continue // 구매 필요 레벨 미달
       const coin = item.levels[next - 1].coin
       const trial: GearState = { ...gear, [slot]: { item: 0, level: next } }
       const val = value(trial)
@@ -690,11 +720,18 @@ export function optimizeUpgradeOrder(
       const score = mode === 'greedy' ? gain : gain / (coin || 1)
       if (!best || score > best.score) best = { slot, level: next, coin, val, gain, score }
     }
-    if (!best) break // 후보 없음 (전 슬롯 최대 or 필요 레벨 미달)
-    gear[best.slot] = { item: 0, level: best.level }
-    cumCoin += best.coin
-    steps.push({ slot: best.slot, level: best.level, coin: best.coin, cumCoin, value: best.val, gain: best.gain, per: per(gear) })
-    base = best.val
+    if (!best) {
+      // 다른 슬롯이 모두 끝났는데 신발 핀이 남았으면 위치 무관하게 소진
+      if (pin && shoe && pin.level <= shoe.levels.length && lv >= reqLevelOf(UTIL_SLOT, pin.level)) {
+        const coin = shoe.levels[pin.level - 1].coin
+        const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } })
+        buy(UTIL_SLOT, pin.level, coin, val, val - base)
+        pinIdx++
+        continue
+      }
+      break // 전 슬롯 최대 or 필요 레벨 미달
+    }
+    buy(best.slot, best.level, best.coin, best.val, best.gain)
   }
   return steps
 }
