@@ -34,7 +34,6 @@ import {
   rankDefKits,
   rankKits,
   simulate,
-  upgradeGroupHps,
   singleTarget,
   subFieldTarget,
   type GearState,
@@ -448,11 +447,13 @@ function upoAvg(steps: UpgradeStep[]): number {
 }
 
 // 강화 순서 값 곡선 비교 (Y=값, X=누적 코인 · 세 순서를 선으로, marks=컷 기준선)
+// hpCurve=단계별 상대 HP(원콤선) — 상대가 함께 성장하면 기울고, 풀빌드면 평평해짐
 // activeTone 곡선엔 구매마다 점을 찍음 — hoverIdx(리스트 호버 단계)는 크게, mileIdx(컷 달성)는 골드로
-function UpgradeChart({ curves, kind, marks = [], activeTone, hoverIdx, mileIdx }: {
+function UpgradeChart({ curves, kind, marks = [], hpCurve, activeTone, hoverIdx, mileIdx }: {
   curves: { tone: string; steps: UpgradeStep[] }[]
   kind: 'attack' | 'defense'
   marks?: { y: number; label: string }[]
+  hpCurve?: { x: number; y: number }[]
   activeTone?: string
   hoverIdx?: number | null
   mileIdx?: Set<number>
@@ -468,7 +469,7 @@ function UpgradeChart({ curves, kind, marks = [], activeTone, hoverIdx, mileIdx 
   const all = series.flatMap((s) => s.pts)
   if (!all.length) return null
   const maxX = Math.max(...all.map((p) => p.x)) || 1
-  const ys = [...all.map((p) => p.y), ...marks.map((m) => m.y)] // 기준선도 범위에 포함
+  const ys = [...all.map((p) => p.y), ...marks.map((m) => m.y), ...(hpCurve ?? []).map((p) => p.y)] // 기준선도 범위에 포함
   const minY = Math.min(...ys), maxY = Math.max(...ys) || 1
   const spanY = maxY - minY || 1
   const sx = (x: number) => padL + (x / maxX) * (W - padL - padR)
@@ -493,6 +494,12 @@ function UpgradeChart({ curves, kind, marks = [], activeTone, hoverIdx, mileIdx 
           <text x={W - padR - 3} y={sy(m.y) - 4} className="upo-mark-lbl" textAnchor="end">{m.label}</text>
         </g>
       ))}
+      {hpCurve && hpCurve.length > 1 && (
+        <g>
+          <polyline className="upo-hpline" points={hpCurve.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')} />
+          <text x={W - padR - 3} y={sy(hpCurve[hpCurve.length - 1].y) - 4} className="upo-mark-lbl" textAnchor="end">상대 HP</text>
+        </g>
+      )}
       {series.map((s) => s.pts.length > 1 && (
         <polyline key={s.tone}
           className={`upo-line ${s.tone}${activeTone && s.tone !== activeTone ? ' dim' : ''}`}
@@ -533,6 +540,9 @@ export default function App() {
   const [oppType, setOppType] = useState<'field' | 'single'>('field')
   const [kitSort, setKitSort] = useState<string>('all') // all=종합, dealer, armor, evade, tank(방탱+회탱)
   const [upoView, setUpoView] = useState<'eff' | 'greedy' | 'rank'>('eff') // 강화 순서 보기
+  // 강화 순서의 상대 진행도. 기본 full — 상대가 나와 같이 크면 원콤이 항상 참이라
+  // 마일스톤이 정보를 잃음("완성된 상대를 한 콤보에 잡는 시점"이 의미 있는 질문)
+  const [upoOpp, setUpoOpp] = useState<'sync' | 'full'>('full')
   const [methodOpen, setMethodOpen] = useState(true)
   const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
 
@@ -841,34 +851,29 @@ export default function App() {
   }, [gearEff, slug, tier])
 
   // 강화 순서 추천 (자동 모드 전용) — 현재 탭(공격/방어)·선택 킷 기준 탐욕/효율 + 랭커 빌드
-  // 무거우니 auto 모드일 때만 계산. 킷: 공격=공격 최적킷, 방어=선택 방어킷
+  // 무거우니 auto 모드일 때만 계산. 킷: 공격=선택 공격킷, 방어=선택 방어킷
   const upoKind: 'attack' | 'defense' = simView === 'attack' ? 'attack' : 'defense'
-  const upoKit = simView === 'attack' ? kitRank[0]?.kit ?? null : selectedDefKit
+  const upoKit = simView === 'attack' ? selectedKit : selectedDefKit
   const upgradeOrders = useMemo(() => {
     if (setting !== 'auto') return null
     const rankerPath = (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level }))
+    const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier) // 상대 진행도
     return {
-      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy'),
-      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency'),
-      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath),
+      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy', opp),
+      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency', opp),
+      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath, opp),
     }
-  }, [setting, slug, simView, upoKit, tier])
-  // 공격의 원킬 기준 HP = 풀빌드 상대 필드 평균 (종합 + 딜러/방탱/회탱 그룹별)
-  const upoHps = useMemo(
-    () => (setting === 'auto' && upoKind === 'attack' ? upgradeGroupHps(slug, tier) : null),
-    [setting, upoKind, slug, tier],
-  )
-  // 차트 컷 기준선: 공격=원킬선(평균 HP), 방어=정수 컷(1컷/2컷…)
+  }, [setting, slug, simView, upoKit, tier, upoOpp])
+  // 차트 컷 기준선: 공격=상대 HP 곡선(hpCurve)으로 대체, 방어=정수 컷(1컷/2컷…)
   const upoMarks = useMemo(() => {
-    if (!upgradeOrders) return []
-    if (upoKind === 'attack') return upoHps ? [{ y: upoHps.overall, label: '원콤선 (상대 평균 HP)' }] : []
+    if (!upgradeOrders || upoKind === 'attack') return []
     const vals = [...upgradeOrders.efficiency, ...upgradeOrders.greedy, ...upgradeOrders.ranker].map((s) => s.value)
     if (!vals.length) return []
     const hi = Math.max(...vals)
     const marks: { y: number; label: string }[] = []
     for (let k = 1; k <= Math.floor(hi); k++) marks.push({ y: k, label: `${k}컷 버팀` })
     return marks
-  }, [upgradeOrders, upoKind, upoHps])
+  }, [upgradeOrders, upoKind])
   // 세 순서 각각의 단계 + 컷 달성 마일스톤 — 전환 시 높이 고정을 위해 셋 다 미리 계산해 겹쳐 렌더
   const upoAll = useMemo(() => {
     if (!upgradeOrders) return null
@@ -881,21 +886,25 @@ export default function App() {
         m.set(i, a)
       }
       if (upoKind === 'attack') {
-        if (!upoHps) return m
-        // 종합 + 그룹별: 사이클+궁(원콤) / 사이클만(궁없이 원콤)이 그룹 평균 HP를 처음 넘는 구매
-        const goals: [string, string, number, (s: UpgradeStep) => number, boolean?][] = [
-          ['평균 원콤', 'gold', upoHps.overall, (s) => s.value],
-          ['딜러 원콤', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
-          ['방탱 원콤', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
-          ['회탱 원콤', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
-          ['궁없이 평균 원콤', 'gold', upoHps.overall, (s) => s.noUlt ?? 0, true],
-          ['궁없이 딜러 원콤', 'dealer', upoHps.per[0], (s) => s.perNoUlt?.[0] ?? 0, true],
-          ['궁없이 방탱 원콤', 'armor', upoHps.per[1], (s) => s.perNoUlt?.[1] ?? 0, true],
-          ['궁없이 회탱 원콤', 'evade', upoHps.per[2], (s) => s.perNoUlt?.[2] ?? 0, true],
+        // 종합 + 그룹별: 사이클+궁(원콤) / 사이클만(궁없이 원콤)이 그 시점 그룹 평균 HP를 처음 넘는 구매
+        // 상대도 함께 성장하면 기준 HP가 단계마다 달라져 고정 임계값 대신 단계별로 비교
+        const hpAll = (s: UpgradeStep) => s.hp ?? Infinity
+        const hpOf = (k: number) => (s: UpgradeStep) => s.perHp?.[k] ?? Infinity
+        const goals: [string, string, (s: UpgradeStep) => number, (s: UpgradeStep) => number, boolean?][] = [
+          ['평균 원콤', 'gold', hpAll, (s) => s.value],
+          ['딜러 원콤', 'dealer', hpOf(0), (s) => s.per[0] ?? 0],
+          ['방탱 원콤', 'armor', hpOf(1), (s) => s.per[1] ?? 0],
+          ['회탱 원콤', 'evade', hpOf(2), (s) => s.per[2] ?? 0],
+          ['궁없이 평균 원콤', 'gold', hpAll, (s) => s.noUlt ?? 0, true],
+          ['궁없이 딜러 원콤', 'dealer', hpOf(0), (s) => s.perNoUlt?.[0] ?? 0, true],
+          ['궁없이 방탱 원콤', 'armor', hpOf(1), (s) => s.perNoUlt?.[1] ?? 0, true],
+          ['궁없이 회탱 원콤', 'evade', hpOf(2), (s) => s.perNoUlt?.[2] ?? 0, true],
         ]
         for (const [label, tone, hp, get, strong] of goals) {
-          if (hp <= 0 || get(steps[0]) - (steps[0].gain || 0) >= hp) continue
-          const i = steps.findIndex((s) => get(s) >= hp)
+          const hp0 = hp(steps[0])
+          if (!isFinite(hp0) || hp0 <= 0) continue
+          if (get(steps[0]) - (steps[0].gain || 0) >= hp0) continue // 빈 장비부터 이미 달성
+          const i = steps.findIndex((s) => get(s) >= hp(s))
           if (i >= 0) add(i, label, tone, strong)
         }
       } else {
@@ -920,12 +929,18 @@ export default function App() {
       greedy: { steps: upgradeOrders.greedy, miles: miles(upgradeOrders.greedy) },
       rank: { steps: upgradeOrders.ranker, miles: miles(upgradeOrders.ranker) },
     }
-  }, [upgradeOrders, upoKind, upoHps])
+  }, [upgradeOrders, upoKind])
   const [upoHover, setUpoHover] = useState<number | null>(null)
   const upoMileIdx = useMemo(
     () => new Set(upoAll ? upoAll[upoView].miles.keys() : []),
     [upoAll, upoView],
   )
+  // 공격 차트의 원콤 기준선 = 선택 순서의 단계별 상대 HP (풀빌드 모드면 평평한 선)
+  const upoHpCurve = useMemo(() => {
+    if (!upoAll || upoKind !== 'attack') return undefined
+    const pts = upoAll[upoView].steps.filter((s) => s.hp != null).map((s) => ({ x: s.cumCoin, y: s.hp as number }))
+    return pts.length > 1 ? pts : undefined
+  }, [upoAll, upoView, upoKind])
 
   return (
     <div className="app">
@@ -1052,13 +1067,17 @@ export default function App() {
         <>
           <SecHead
             title="강화 순서 추천"
-            sub={simView === 'attack'
-              ? '매 구매 시점 코인 대비 딜 이득이 가장 큰 순서로 강화 · 상대는 풀빌드 기준'
-              : '매 구매 시점 코인 대비 생존 이득이 가장 큰 순서로 강화 · 상대는 풀빌드 기준'}
+            sub={`매 구매 시점 코인 대비 ${simView === 'attack' ? '딜' : '생존'} 이득이 가장 큰 순서로 강화 · 상대는 ${upoOpp === 'sync' ? '나와 같은 구매 수' : '풀빌드'} 기준`}
           />
           <section className="panel upo">
             <div className="upo-note">
               {simView === 'attack' ? '공격' : '방어'} 기준 · 킷 <b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
+              <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
+                <span className="lbl">상대</span>
+                {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
+                  <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
+                ))}
+              </span>
               <span className="upo-hint">Y = {simView === 'attack' ? '한타 딜' : '생존 컷'} · X = 누적 코인</span>
             </div>
             {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔.
@@ -1104,7 +1123,7 @@ export default function App() {
                 )
               })}
             </div>
-            <UpgradeChart kind={upoKind} marks={upoMarks} activeTone={upoView} hoverIdx={upoHover} mileIdx={upoMileIdx} curves={[
+            <UpgradeChart kind={upoKind} marks={upoMarks} hpCurve={upoHpCurve} activeTone={upoView} hoverIdx={upoHover} mileIdx={upoMileIdx} curves={[
               { tone: 'eff', steps: upgradeOrders.efficiency },
               { tone: 'greedy', steps: upgradeOrders.greedy },
               { tone: 'rank', steps: upgradeOrders.ranker },

@@ -323,6 +323,9 @@
 .upo-note { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .upo-note b { color: var(--text-2); font-weight: 600; }
 .upo-hint { margin-left: auto; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
+.upo-seg { align-items: center; padding-left: 8px; cursor: help; }
+.upo-seg .lbl { margin-right: 4px; }
+.upo-seg button { font-size: 11px; padding: 3px 9px; }
 
 /* 값 곡선 차트 */
 .upo-chart { width: 100%; height: auto; display: block; }
@@ -333,7 +336,9 @@
 .upo-line.greedy { stroke: var(--accent-2); stroke-dasharray: 4 3; }
 .upo-line.rank { stroke: var(--text-3); stroke-width: 1.5; opacity: 0.75; }
 .upo-line.dim { opacity: 0.18; } /* 선택 안 된 순서는 흐리게 */
+.upo-seg button { font-size: 11px; padding: 3px 9px; }
 .upo-mark { stroke: var(--gold); stroke-width: 1; stroke-dasharray: 6 4; opacity: 0.65; }
+.upo-hpline { fill: none; stroke: var(--gold); stroke-width: 1.3; stroke-dasharray: 6 4; opacity: 0.7; }
 .upo-mark-lbl { fill: var(--gold); font-size: 9px; font-family: var(--mono); opacity: 0.9; }
 /* 선택 순서의 구매 지점 — 리스트 호버와 연동 */
 .upo-dot { transition: r 0.1s; }

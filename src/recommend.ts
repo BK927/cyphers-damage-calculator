@@ -628,52 +628,87 @@ export interface UpgradeStep {
   per: number[] // 그룹별 값 — 공격: [딜러,방탱,회탱] 딜 / 방어: [딜러,탱커] 생존 컷
   noUlt?: number // 공격 전용: 궁 제외(사이클만) 종합 딜
   perNoUlt?: number[] // 공격 전용: 궁 제외 그룹별 딜
+  hp?: number // 공격 전용: 그 시점 종합 상대 평균 HP (원콤 기준선)
+  perHp?: number[] // 공격 전용: 그룹별[딜러,방탱,회탱] 상대 평균 HP
+}
+
+/** 상대 진행도 — number=그 구매 수로 고정 / 'sync'=각 단계마다 나와 같은 구매 수 */
+export type OppStage = number | 'sync'
+
+// 상대 필드는 stage마다 전 캐릭 순회라 무거움 → stage별로 캐싱해 greedy/efficiency/ranker가 공유
+interface UpoDefFields { dealer: IncomingAttacker[]; tank: IncomingAttacker[]; all: IncomingAttacker[] }
+interface UpoAtkFields { ts: Target[]; merged: Target }
+const upoFieldCache = new Map<string, UpoDefFields | UpoAtkFields>()
+
+function upoDefFields(slug: string, tier: Tier, stage: number): UpoDefFields {
+  const key = `${slug}#${tier}#defense#${stage}`
+  const hit = upoFieldCache.get(key) as UpoDefFields | undefined
+  if (hit) return hit
+  const dealer = incomingField('dealer', stage, tier, slug)
+  const tank = [...incomingField('tankArmor', stage, tier, slug), ...incomingField('tankEvade', stage, tier, slug)]
+  const v: UpoDefFields = { dealer, tank, all: [...dealer, ...tank] }
+  upoFieldCache.set(key, v)
+  return v
+}
+
+function upoAtkFields(slug: string, tier: Tier, stage: number): UpoAtkFields {
+  const key = `${slug}#${tier}#attack#${stage}`
+  const hit = upoFieldCache.get(key) as UpoAtkFields | undefined
+  if (hit) return hit
+  const ts = [
+    subFieldTarget('dealer', stage, tier, slug),
+    subFieldTarget('tankArmor', stage, tier, slug),
+    subFieldTarget('tankEvade', stage, tier, slug),
+  ]
+  const v: UpoAtkFields = { ts, merged: mergeFields(...ts) }
+  upoFieldCache.set(key, v)
+  return v
 }
 
 /**
  * 강화 순서 최적화 — 빈 장비에서 슬롯별 1레벨씩 사며 각 시점 최선 후보를 채택.
  * greedy=절대 이득(Δ) 최대(한 방 큰 것 먼저), efficiency=코인당 이득(Δ/코인) 최대(면적 근사).
  * L강 구매 필요 캐릭 레벨 = 10×(L−1), 캐릭 레벨 = 강화 누적(부위별 LEVEL_GAIN).
- * 상대(필드/타깃)는 풀빌드 기준(refStage)으로 루프 밖에서 1회만 구성해 재사용.
+ * 상대(필드/타깃)는 stage별로 캐싱해 재사용(oppStage='sync'면 단계마다 상대도 함께 성장).
  */
 // 강화 목표값 — defense=생존 사이클 수(HP/받는피해), attack=한 사이클+궁 기대딜.
 // value=종합(선택 기준), per=그룹별(공격: 딜러/방탱/회탱 딜, 방어: 딜러/탱커 생존 컷).
-// 상대(필드/타깃)는 풀빌드 기준으로 1회만 구성해 클로저로 재사용(평가가 필드 전체를 순회하므로).
+// 상대(필드/타깃)는 stage를 받아 캐시에서 꺼내 씀 — 같은 stage면 세 순서가 함께 재사용.
 function upgradeEvaluators(
   slug: string,
   kind: 'attack' | 'defense',
   kit: KitOption | null,
   tier: Tier,
 ): {
-  value: (gear: GearState) => number
-  snap: (gear: GearState) => Pick<UpgradeStep, 'per' | 'noUlt' | 'perNoUlt'> // 채택된 단계의 그룹별·궁제외 값
+  value: (gear: GearState, stage: number) => number
+  // 채택된 단계의 그룹별·궁제외 값 + 그 시점 상대 HP
+  snap: (gear: GearState, stage: number) => Pick<UpgradeStep, 'per' | 'noUlt' | 'perNoUlt' | 'hp' | 'perHp'>
 } {
-  const refStage = maxStageOf(slug, tier)
   if (kind === 'defense') {
-    const dealer = incomingField('dealer', refStage, tier, slug)
-    const tank = [...incomingField('tankArmor', refStage, tier, slug), ...incomingField('tankEvade', refStage, tier, slug)]
-    const all = [...dealer, ...tank]
     const surv = (atks: IncomingAttacker[], gear: GearState) => {
       const dmg = incomingSim(atks, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
       return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
     }
-    return { value: (g) => surv(all, g), snap: (g) => ({ per: [surv(dealer, g), surv(tank, g)] }) }
+    return {
+      value: (g, st) => surv(upoDefFields(slug, tier, st).all, g),
+      snap: (g, st) => {
+        const f = upoDefFields(slug, tier, st)
+        return { per: [surv(f.dealer, g), surv(f.tank, g)] }
+      },
+    }
   }
-  const ts = [
-    subFieldTarget('dealer', refStage, tier, slug),
-    subFieldTarget('tankArmor', refStage, tier, slug),
-    subFieldTarget('tankEvade', refStage, tier, slug),
-  ]
-  const merged = mergeFields(...ts)
   const sim1 = (t: Target, gear: GearState) => simulate(slug, attackerFrom(slug, gear, kit, tier), t, '1st')
   return {
-    value: (g) => sim1(merged, g).cyclePlusUlt,
-    snap: (g) => {
+    value: (g, st) => sim1(upoAtkFields(slug, tier, st).merged, g).cyclePlusUlt,
+    snap: (g, st) => {
+      const { ts, merged } = upoAtkFields(slug, tier, st)
       const groups = ts.map((t) => sim1(t, g))
       return {
         per: groups.map((r) => r.cyclePlusUlt),
         noUlt: sim1(merged, g).cycle,
         perNoUlt: groups.map((r) => r.cycle),
+        hp: targetHP(merged),
+        perHp: ts.map(targetHP),
       }
     },
   }
@@ -685,9 +720,13 @@ export function optimizeUpgradeOrder(
   kit: KitOption | null,
   tier: Tier,
   mode: 'greedy' | 'efficiency',
+  oppStage: OppStage = 'sync',
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
   const { value, snap } = upgradeEvaluators(slug, kind, kit, tier)
+  // i번째(0-base) 구매 시점의 상대 진행도 — 'sync'면 나와 같은 구매 수
+  const maxOpp = maxStageOf(slug, tier)
+  const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
 
   // 신발(유틸) 핀: 랭커 실구매 순서에서 발(이동)이 등장하는 위치 (없으면 핀 없음 → 기존 동작)
   const pins = (buildBySlug[slug]?.order ?? [])
@@ -698,24 +737,26 @@ export function optimizeUpgradeOrder(
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
   let cumCoin = 0
-  let base = value(gear) // 현 시점 값
 
-  const buy = (slot: string, level: number, coin: number, val: number, gain: number) => {
+  const buy = (slot: string, level: number, coin: number, val: number, gain: number, st: number) => {
     gear[slot] = { item: 0, level }
     cumCoin += coin
-    steps.push({ slot, level, coin, cumCoin, value: val, gain, ...snap(gear) })
-    base = val
+    steps.push({ slot, level, coin, cumCoin, value: val, gain, ...snap(gear, st) })
   }
 
   for (;;) {
     const lv = charLevel(gear)
+    const st = stageAt(steps.length) // 이번 구매 시점의 상대 진행도
+    // Δ는 반드시 같은 상대 진행도에서 잰다 — 이전 단계 값과 비교하면
+    // '내 강화 이득 − 상대 성장분'이 되어 sync에서 음수로 뒤집힘
+    const base = value(gear, st)
     // 핀 도달 시 신발 우선 구매 (레벨 요건 미달이면 충족될 때까지 자연 지연)
     const pin = pins[pinIdx]
     const shoe = slots[UTIL_SLOT]?.[0]
     if (pin && shoe && steps.length >= pin.at && pin.level <= shoe.levels.length && lv >= reqLevelOf(UTIL_SLOT, pin.level)) {
       const coin = shoe.levels[pin.level - 1].coin
-      const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } })
-      buy(UTIL_SLOT, pin.level, coin, val, val - base)
+      const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } }, st)
+      buy(UTIL_SLOT, pin.level, coin, val, val - base, st)
       pinIdx++
       continue
     }
@@ -730,7 +771,7 @@ export function optimizeUpgradeOrder(
       if (lv < reqLevelOf(slot, next)) continue // 구매 필요 레벨 미달
       const coin = item.levels[next - 1].coin
       const trial: GearState = { ...gear, [slot]: { item: 0, level: next } }
-      const val = value(trial)
+      const val = value(trial, st)
       const gain = val - base
       const score = mode === 'greedy' ? gain : gain / (coin || 1)
       if (!best || score > best.score) best = { slot, level: next, coin, val, gain, score }
@@ -739,27 +780,16 @@ export function optimizeUpgradeOrder(
       // 다른 슬롯이 모두 끝났는데 신발 핀이 남았으면 위치 무관하게 소진
       if (pin && shoe && pin.level <= shoe.levels.length && lv >= reqLevelOf(UTIL_SLOT, pin.level)) {
         const coin = shoe.levels[pin.level - 1].coin
-        const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } })
-        buy(UTIL_SLOT, pin.level, coin, val, val - base)
+        const val = value({ ...gear, [UTIL_SLOT]: { item: 0, level: pin.level } }, st)
+        buy(UTIL_SLOT, pin.level, coin, val, val - base, st)
         pinIdx++
         continue
       }
       break // 전 슬롯 최대 or 필요 레벨 미달
     }
-    buy(best.slot, best.level, best.coin, best.val, best.gain)
+    buy(best.slot, best.level, best.coin, best.val, best.gain, st)
   }
   return steps
-}
-
-/** 강화 순서(공격)의 원킬 기준 HP — 종합 + 그룹별(딜러/방탱/회탱) 풀빌드 상대 평균 HP */
-export function upgradeGroupHps(slug: string, tier: Tier = '0'): { overall: number; per: number[] } {
-  const refStage = maxStageOf(slug, tier)
-  const ts = [
-    subFieldTarget('dealer', refStage, tier, slug),
-    subFieldTarget('tankArmor', refStage, tier, slug),
-    subFieldTarget('tankEvade', refStage, tier, slug),
-  ]
-  return { overall: targetHP(mergeFields(...ts)), per: ts.map((t) => targetHP(t)) }
 }
 
 /** 주어진 강화 순서(랭커 빌드 등)를 그대로 재생해 각 시점 값 곡선을 계산 (비교용). */
@@ -769,22 +799,25 @@ export function evalUpgradePath(
   kit: KitOption | null,
   tier: Tier,
   path: { slot: string; level: number }[],
+  oppStage: OppStage = 'sync',
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
   const { value, snap } = upgradeEvaluators(slug, kind, kit, tier)
+  const maxOpp = maxStageOf(slug, tier)
+  const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
   let cumCoin = 0
-  let base = value(gear)
   for (const p of path) {
     const item = slots[p.slot]?.[0]
     if (!item || p.level < 1 || p.level > item.levels.length) continue // 장비 외(소모품 등) 스킵
+    const st = stageAt(steps.length)
+    const base = value(gear, st) // Δ는 같은 상대 진행도 기준 (optimizeUpgradeOrder와 동일)
     gear[p.slot] = { item: 0, level: p.level }
     const coin = item.levels[p.level - 1].coin
     cumCoin += coin
-    const val = value(gear)
-    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, ...snap(gear) })
-    base = val
+    const val = value(gear, st)
+    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, ...snap(gear, st) })
   }
   return steps
 }
