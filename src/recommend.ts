@@ -626,6 +626,8 @@ export interface UpgradeStep {
   value: number // 강화 적용 후 목표값
   gain: number // Δ = 적용 후 − 적용 전
   per: number[] // 그룹별 값 — 공격: [딜러,방탱,회탱] 딜 / 방어: [딜러,탱커] 생존 컷
+  noUlt?: number // 공격 전용: 궁 제외(사이클만) 종합 딜
+  perNoUlt?: number[] // 공격 전용: 궁 제외 그룹별 딜
 }
 
 /**
@@ -642,7 +644,10 @@ function upgradeEvaluators(
   kind: 'attack' | 'defense',
   kit: KitOption | null,
   tier: Tier,
-): { value: (gear: GearState) => number; per: (gear: GearState) => number[] } {
+): {
+  value: (gear: GearState) => number
+  snap: (gear: GearState) => Pick<UpgradeStep, 'per' | 'noUlt' | 'perNoUlt'> // 채택된 단계의 그룹별·궁제외 값
+} {
   const refStage = maxStageOf(slug, tier)
   if (kind === 'defense') {
     const dealer = incomingField('dealer', refStage, tier, slug)
@@ -652,7 +657,7 @@ function upgradeEvaluators(
       const dmg = incomingSim(atks, defenderFrom(slug, gear, kit, tier)).cyclePlusUlt.exp
       return dmg > 0 ? hpFrom(slug, gear, kit, tier) / dmg : 1e9
     }
-    return { value: (g) => surv(all, g), per: (g) => [surv(dealer, g), surv(tank, g)] }
+    return { value: (g) => surv(all, g), snap: (g) => ({ per: [surv(dealer, g), surv(tank, g)] }) }
   }
   const ts = [
     subFieldTarget('dealer', refStage, tier, slug),
@@ -660,8 +665,18 @@ function upgradeEvaluators(
     subFieldTarget('tankEvade', refStage, tier, slug),
   ]
   const merged = mergeFields(...ts)
-  const dmg = (t: Target, gear: GearState) => simulate(slug, attackerFrom(slug, gear, kit, tier), t, '1st').cyclePlusUlt
-  return { value: (g) => dmg(merged, g), per: (g) => ts.map((t) => dmg(t, g)) }
+  const sim1 = (t: Target, gear: GearState) => simulate(slug, attackerFrom(slug, gear, kit, tier), t, '1st')
+  return {
+    value: (g) => sim1(merged, g).cyclePlusUlt,
+    snap: (g) => {
+      const groups = ts.map((t) => sim1(t, g))
+      return {
+        per: groups.map((r) => r.cyclePlusUlt),
+        noUlt: sim1(merged, g).cycle,
+        perNoUlt: groups.map((r) => r.cycle),
+      }
+    },
+  }
 }
 
 export function optimizeUpgradeOrder(
@@ -672,7 +687,7 @@ export function optimizeUpgradeOrder(
   mode: 'greedy' | 'efficiency',
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
-  const { value, per } = upgradeEvaluators(slug, kind, kit, tier)
+  const { value, snap } = upgradeEvaluators(slug, kind, kit, tier)
 
   // 신발(유틸) 핀: 랭커 실구매 순서에서 발(이동)이 등장하는 위치 (없으면 핀 없음 → 기존 동작)
   const pins = (buildBySlug[slug]?.order ?? [])
@@ -688,7 +703,7 @@ export function optimizeUpgradeOrder(
   const buy = (slot: string, level: number, coin: number, val: number, gain: number) => {
     gear[slot] = { item: 0, level }
     cumCoin += coin
-    steps.push({ slot, level, coin, cumCoin, value: val, gain, per: per(gear) })
+    steps.push({ slot, level, coin, cumCoin, value: val, gain, ...snap(gear) })
     base = val
   }
 
@@ -756,7 +771,7 @@ export function evalUpgradePath(
   path: { slot: string; level: number }[],
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
-  const { value, per } = upgradeEvaluators(slug, kind, kit, tier)
+  const { value, snap } = upgradeEvaluators(slug, kind, kit, tier)
   const gear: GearState = {}
   const steps: UpgradeStep[] = []
   let cumCoin = 0
@@ -768,7 +783,7 @@ export function evalUpgradePath(
     const coin = item.levels[p.level - 1].coin
     cumCoin += coin
     const val = value(gear)
-    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, per: per(gear) })
+    steps.push({ slot: p.slot, level: p.level, coin, cumCoin, value: val, gain: val - base, ...snap(gear) })
     base = val
   }
   return steps

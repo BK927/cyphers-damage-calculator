@@ -873,26 +873,30 @@ export default function App() {
   const upoAll = useMemo(() => {
     if (!upgradeOrders) return null
     const miles = (steps: UpgradeStep[]) => {
-      const m = new Map<number, { label: string; tone: string }[]>()
+      const m = new Map<number, { label: string; tone: string; strong?: boolean }[]>()
       if (!steps.length) return m
-      const add = (i: number, label: string, tone: string) => {
+      const add = (i: number, label: string, tone: string, strong?: boolean) => {
         const a = m.get(i) ?? []
-        a.push({ label, tone })
+        a.push({ label, tone, strong })
         m.set(i, a)
       }
       if (upoKind === 'attack') {
         if (!upoHps) return m
-        // 종합 + 그룹별: 사이클+궁 딜이 해당 그룹 평균 HP를 처음 넘는 구매 (원콤 = 한 콤보 처치)
-        const goals: [string, string, number, (s: UpgradeStep) => number][] = [
+        // 종합 + 그룹별: 사이클+궁(원콤) / 사이클만(궁없이 원콤)이 그룹 평균 HP를 처음 넘는 구매
+        const goals: [string, string, number, (s: UpgradeStep) => number, boolean?][] = [
           ['평균 원콤', 'gold', upoHps.overall, (s) => s.value],
           ['딜러 원콤', 'dealer', upoHps.per[0], (s) => s.per[0] ?? 0],
           ['방탱 원콤', 'armor', upoHps.per[1], (s) => s.per[1] ?? 0],
           ['회탱 원콤', 'evade', upoHps.per[2], (s) => s.per[2] ?? 0],
+          ['궁없이 평균 원콤', 'gold', upoHps.overall, (s) => s.noUlt ?? 0, true],
+          ['궁없이 딜러 원콤', 'dealer', upoHps.per[0], (s) => s.perNoUlt?.[0] ?? 0, true],
+          ['궁없이 방탱 원콤', 'armor', upoHps.per[1], (s) => s.perNoUlt?.[1] ?? 0, true],
+          ['궁없이 회탱 원콤', 'evade', upoHps.per[2], (s) => s.perNoUlt?.[2] ?? 0, true],
         ]
-        for (const [label, tone, hp, get] of goals) {
+        for (const [label, tone, hp, get, strong] of goals) {
           if (hp <= 0 || get(steps[0]) - (steps[0].gain || 0) >= hp) continue
           const i = steps.findIndex((s) => get(s) >= hp)
-          if (i >= 0) add(i, label, tone)
+          if (i >= 0) add(i, label, tone, strong)
         }
       } else {
         // 종합 + 그룹별 정수 컷 돌파 (1컷=상대 한 사이클 버팀)
@@ -1061,7 +1065,7 @@ export default function App() {
                 세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
             <div className="upo-roads">
               {(['eff', 'greedy', 'rank'] as const).map((v) => {
-                const { steps, miles: mm } = upoAll?.[v] ?? { steps: [], miles: new Map<number, { label: string; tone: string }[]>() }
+                const { steps, miles: mm } = upoAll?.[v] ?? { steps: [], miles: new Map<number, { label: string; tone: string; strong?: boolean }[]>() }
                 const active = upoView === v
                 const slots = gearSlotsOf(slug, tier)
                 return (
@@ -1085,10 +1089,12 @@ export default function App() {
                           {miles && (
                             <div className={`upo-cut ${miles[0].tone}`}
                               title={upoKind === 'attack'
-                                ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)'
+                                ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)\n궁없이 원콤 = 궁을 아껴도 사이클만으로 처치 (최상)'
                                 : 'N컷 = 상대의 사이클+궁 N번을 버티는 체력·방어'}>
-                              {miles.map((x) => <b key={x.label} className={x.tone}>✓ {x.label}</b>)}
-                              <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인{upoKind === 'attack' ? ' · 궁 포함' : ''}</small>
+                              {miles.map((x) => (
+                                <b key={x.label} className={x.strong ? `${x.tone} noult` : x.tone}>✓ {x.label}</b>
+                              ))}
+                              <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인{upoKind === 'attack' && miles.every((x) => !x.strong) ? ' · 궁 포함' : ''}</small>
                             </div>
                           )}
                         </Fragment>

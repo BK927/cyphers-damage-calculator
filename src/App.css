@@ -409,6 +409,12 @@
 .upo-cut::before { width: 18px; }
 .upo-cut::after { flex: 1; }
 .upo-cut b { font-weight: 700; white-space: nowrap; }
+/* 궁없이 원콤 — 궁 아껴도 처치되는 최상 마일스톤은 필(pill)로 강조 */
+.upo-cut b.noult {
+  padding: 1.5px 8px; border-radius: 999px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+}
 .upo-cut b.gold, .upo-cut.gold { color: var(--gold); }
 .upo-cut b.dealer, .upo-cut.dealer { color: var(--dealer); }
 .upo-cut b.armor, .upo-cut.armor { color: var(--tank); }
