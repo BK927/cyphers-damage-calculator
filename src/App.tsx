@@ -1078,8 +1078,8 @@ export default function App() {
                             <em>{i + 1}</em>
                             <img src={itemIcon(slots[s.slot]?.[0]?.icon)} alt="" loading="lazy" onError={hideOnError} />
                             <span className="t">
-                              <b className={UPO_TONE[s.slot] ?? ''}>{UPO_SHORT[s.slot] ?? s.slot}{s.level}</b>
-                              <i>{upoVal(s.value, upoKind)}</i>
+                              <b className={UPO_TONE[s.slot] ?? ''}>{slots[s.slot]?.[0]?.name ?? UPO_SHORT[s.slot] ?? s.slot}</b>
+                              <i><u>{UPO_SHORT[s.slot] ?? s.slot} {s.level}강</u> · {upoVal(s.value, upoKind)}</i>
                             </span>
                           </div>
                           {miles && (
