@@ -628,6 +628,18 @@ function upoItemIdx(slots: Record<string, GearItem[]>, kind: 'attack' | 'defense
   }
   return out
 }
+// 기본 idx에 오버라이드를 얹되, 후보 범위 밖 인덱스는 0으로 클램프
+function mergeItemIdx(
+  base: Record<string, number>,
+  over: Record<string, number> | undefined,
+  slots: Record<string, GearItem[]>,
+): Record<string, number> {
+  const idx = { ...base, ...(over ?? {}) }
+  for (const [slot, i] of Object.entries(idx)) {
+    if (i < 0 || i >= (slots[slot]?.length ?? 0)) idx[slot] = 0
+  }
+  return idx
+}
 // 슬롯별 필요 레벨 예외 — 신발 2강은 20레벨 (기본 규칙 10×(L−1)의 예외)
 const REQ_OVERRIDE: Record<string, number[]> = { [UTIL_SLOT]: [0, 20] }
 const reqLevelOf = (slot: string, itemLevel: number) => REQ_OVERRIDE[slot]?.[itemLevel - 1] ?? reqLevel(itemLevel)
@@ -761,10 +773,11 @@ export function optimizeUpgradeOrder(
   mode: 'greedy' | 'efficiency',
   oppStage: OppStage = 'sync',
   objective: UpoObjective = 'contrib',
+  itemOverride?: Record<string, number>, // 슬롯별 아이템 선택 덮어쓰기 (기본은 성향 고정)
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
   const { value, snap } = upgradeEvaluators(slug, kind, kit, tier, objective)
-  const idx = upoItemIdx(slots, kind) // 목걸이 성향 고정 (공격=공목 / 방어=방목)
+  const idx = mergeItemIdx(upoItemIdx(slots, kind), itemOverride, slots) // 목걸이 성향 고정 + 오버라이드
   const cand = (slot: string) => slots[slot]?.[idx[slot] ?? 0]
   // i번째(0-base) 구매 시점의 상대 진행도 — 'sync'면 나와 같은 구매 수
   const maxOpp = maxStageOf(slug, tier)
@@ -853,10 +866,11 @@ export function evalUpgradePath(
   path: { slot: string; level: number }[],
   oppStage: OppStage = 'sync',
   objective: UpoObjective = 'contrib',
+  itemOverride?: Record<string, number>, // 최적 순서와 같은 오버라이드를 받아 공정 비교
 ): UpgradeStep[] {
   const slots = gearSlotsOf(slug, tier)
   const { value, snap } = upgradeEvaluators(slug, kind, kit, tier, objective)
-  const idx = upoItemIdx(slots, kind) // 최적 순서와 같은 목걸이 기준이어야 비교가 공정
+  const idx = mergeItemIdx(upoItemIdx(slots, kind), itemOverride, slots) // 목걸이 성향 고정 + 오버라이드
   const maxOpp = maxStageOf(slug, tier)
   const stageAt = (i: number) => Math.min(oppStage === 'sync' ? i + 1 : oppStage, maxOpp)
   const gear: GearState = {}

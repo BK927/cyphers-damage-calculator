@@ -320,10 +320,39 @@
 
 /* ---------- 강화 순서 추천 ---------- */
 .upo { padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
-.upo-note { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.upo-note b { color: var(--text-2); font-weight: 600; }
-.upo-note .upo-warn { font-style: normal; color: var(--gold); margin-left: 2px; cursor: help; }
-.upo-hint { margin-left: auto; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
+/* 툴바 — 킷 셀렉트 + 기준 장비 토글 + (오른쪽) 목표/상대 세그 */
+.upo-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upo-ctl { display: inline-flex; align-items: center; gap: 6px; }
+.upo-ctl .lbl { font-size: 11px; color: var(--text-3); }
+.upo-ctl select {
+  font: inherit; font-size: 12px; color: var(--accent-2);
+  background: var(--inset); border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px;
+}
+.upo-gear-btn {
+  font: inherit; font-size: 11px; color: var(--text-2); cursor: pointer;
+  background: var(--inset); border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px;
+}
+.upo-gear-btn:hover { border-color: var(--line-2); }
+.upo-gear-btn.on { border-color: var(--line-2); color: var(--text); }
+.upo-bar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 기준 장비 편집기 (접이식) */
+.upo-gearedit {
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--inset); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+}
+.upo-ge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upo-ge-lbl { width: 38px; flex-shrink: 0; font-size: 10.5px; color: var(--text-3); }
+.upo-ge-row select {
+  font: inherit; font-size: 11px; color: var(--accent-2); max-width: 220px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px;
+}
+.upo-ge-note { font-style: normal; font-size: 10px; color: var(--text-3); }
+.upo-ge-reset {
+  align-self: flex-start; font: inherit; font-size: 10.5px; color: var(--text-3); cursor: pointer;
+  background: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px;
+}
+.upo-ge-reset:hover:not(:disabled) { border-color: var(--line-2); color: var(--text-2); }
+.upo-ge-reset:disabled { opacity: 0.4; cursor: default; }
 .upo-seg { align-items: center; padding-left: 8px; cursor: help; }
 .upo-seg .lbl { margin-right: 4px; }
 .upo-seg button { font-size: 11px; padding: 3px 9px; }

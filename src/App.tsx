@@ -11,6 +11,7 @@ import {
   TIER_LABELS,
   TIERS,
   tierView,
+  type GearItem,
   type KitOption,
   type Tier,
 } from './data/meta'
@@ -547,18 +548,13 @@ export default function App() {
   // 공격 목표값. 기본 contrib(총 딜 기여 = 딜 × 생존 사이클) — burst만 쓰면
   // 죽는 걸 계산에 안 넣어 셔츠(체력)를 끝까지 안 사는 문제가 있음
   const [upoObj, setUpoObj] = useState<UpoObjective>('contrib')
+  // 강화 순서 기준 장비 편집 — 후보가 여러 개인 슬롯을 직접 골라 로드맵을 다시 짬
+  const [upoGearOpen, setUpoGearOpen] = useState(false)
+  const [upoItems, setUpoItems] = useState<Record<string, number>>({}) // 슬롯→아이템 인덱스 오버라이드
   const [methodOpen, setMethodOpen] = useState(true)
   const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
-  // 로드맵이 실제로 끼는 목걸이 — 탭 성향(공격=공목/방어=방목)에 맞는 후보가
-  // 메타에 없으면 폴백되므로, 라벨은 탭이 아니라 '실제 고른 것'에서 유도해야 정확
-  const upoNeck = useMemo(() => {
-    const cands = gearSlotsOf(slug, tier)['목']
-    if (!cands?.length) return null
-    const isDef = (c: (typeof cands)[number]) => (c.total.defenseReduction ?? 0) > 0
-    const i = cands.findIndex((c) => (simView === 'attack' ? !isDef(c) : isDef(c)))
-    const chosen = cands[i >= 0 ? i : 0]
-    return { name: chosen.name, def: isDef(chosen), matched: i >= 0 }
-  }, [slug, tier, simView])
+  // 기준 장비 오버라이드는 캐릭터/티어가 바뀌면 무효 → 초기화
+  useEffect(() => { setUpoItems({}) }, [slug, tier])
 
   // 캐릭터 모달 열림 동안 배경 스크롤 잠금
   useEffect(() => {
@@ -868,16 +864,32 @@ export default function App() {
   // 무거우니 auto 모드일 때만 계산. 킷: 공격=선택 공격킷, 방어=선택 방어킷
   const upoKind: 'attack' | 'defense' = simView === 'attack' ? 'attack' : 'defense'
   const upoKit = simView === 'attack' ? selectedKit : selectedDefKit
+  // 기준 장비 편집기에 띄울 슬롯 — 후보가 2개 이상인 슬롯만. 목걸이는 탭 성향이 기본 선택
+  const upoGearRows = useMemo(() => {
+    const slots = gearSlotsOf(slug, tier)
+    const isDef = (c: GearItem) => (c.total.defenseReduction ?? 0) > 0
+    return GEAR_SLOT_ORDER.flatMap((slot) => {
+      const cands = slots[slot]
+      if (!cands || cands.length < 2) return []
+      let defIdx = 0, matched = true
+      if (slot === '목') {
+        const i = cands.findIndex((c) => (upoKind === 'attack' ? !isDef(c) : isDef(c)))
+        matched = i >= 0
+        defIdx = i >= 0 ? i : 0
+      }
+      return [{ slot, label: SLOT_SHORT[slot] ?? slot, cands, defIdx, neck: slot === '목', matched }]
+    })
+  }, [slug, tier, upoKind])
   const upgradeOrders = useMemo(() => {
     if (setting !== 'auto') return null
     const rankerPath = (buildBySlug[slug]?.order ?? []).map((o) => ({ slot: o.slot, level: o.level }))
     const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier) // 상대 진행도
     return {
-      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy', opp, upoObj),
-      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency', opp, upoObj),
-      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath, opp, upoObj),
+      greedy: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'greedy', opp, upoObj, upoItems),
+      efficiency: optimizeUpgradeOrder(slug, upoKind, upoKit, tier, 'efficiency', opp, upoObj, upoItems),
+      ranker: evalUpgradePath(slug, upoKind, upoKit, tier, rankerPath, opp, upoObj, upoItems),
     }
-  }, [setting, slug, simView, upoKit, tier, upoOpp, upoObj])
+  }, [setting, slug, simView, upoKit, tier, upoOpp, upoObj, upoItems])
   // 차트 컷 기준선: 공격=상대 HP 곡선(hpCurve)으로 대체, 방어=정수 컷(1컷/2컷…)
   const upoMarks = useMemo(() => {
     if (!upgradeOrders || upoKind === 'attack') return []
@@ -1082,34 +1094,77 @@ export default function App() {
         <>
           <SecHead
             title="강화 순서 추천"
-            sub={`매 구매 시점 코인 대비 ${simView === 'attack' ? '딜' : '생존'} 이득이 가장 큰 순서로 강화 · 상대는 ${upoOpp === 'sync' ? '나와 같은 구매 수' : '풀빌드'} 기준`}
+            sub="코인 대비 이득이 가장 큰 순서 — 컷 달성 시점 표시"
           />
           <section className="panel upo">
-            <div className="upo-note">
-              <span title={upoNeck
-                ? `이 로드맵이 끼는 목걸이: ${upoNeck.name}`
-                  + (upoNeck.matched ? '' : `\n주간 통계에 ${simView === 'attack' ? '공목' : '방목'} 착용 표본이 없어 실착용 목걸이로 계산합니다`)
-                : undefined}>
-                {upoNeck ? `${upoNeck.def ? '방목' : '공목'} 착용 기준` : '착용 기준'}
-                {upoNeck && !upoNeck.matched && <em className="upo-warn">＊</em>}
-              </span>
-              {' · 킷 '}<b>{simView === 'attack' ? kitName(upoKit ?? NONE_KIT) : defKitName(upoKit ?? NONE_KIT)}</b>
-              {simView === 'attack' && (
-                <span className="seg upo-seg" title={'무엇을 최대화할지\n딜 기여 = 한타 딜 × 버티는 사이클 수 — 죽으면 딜을 못 넣으므로 체력·방어도 기여로 계산 (권장)\n한타 딜 = 순수 화력만 — 생존을 무시해 셔츠(체력)를 끝까지 안 삼'}>
-                  <span className="lbl">목표</span>
-                  {([['contrib', '딜 기여'], ['burst', '한타 딜']] as const).map(([v, label]) => (
-                    <button key={v} className={upoObj === v ? 'on' : ''} onClick={() => setUpoObj(v)}>{label}</button>
+            <div className="upo-bar">
+              <label className="upo-ctl">
+                <span className="lbl">킷</span>
+                {simView === 'attack' ? (
+                  <select value={kitSig(selectedKit)} onChange={(e) => setSelKitSig(e.target.value)}
+                    title="강화 순서 기준 공격킷 — 아래 킷 칩 선택과 공유">
+                    {atkOptions.map((k) => (
+                      <option key={kitSig(k)} value={kitSig(k)}>{kitName(k)}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select value={kitSig(selectedDefKit)} onChange={(e) => setSelDefKitSig(e.target.value)}
+                    title="강화 순서 기준 방어킷 — 아래 킷 칩 선택과 공유">
+                    {defOptions.map((k) => (
+                      <option key={kitSig(k)} value={kitSig(k)}>{defKitName(k)}</option>
+                    ))}
+                  </select>
+                )}
+              </label>
+              {upoGearRows.length > 0 && (
+                <button className={`upo-ctl upo-gear-btn${upoGearOpen ? ' on' : ''}`}
+                  onClick={() => setUpoGearOpen((v) => !v)}
+                  title="로드맵이 쓰는 슬롯별 아이템을 직접 고름">
+                  기준 장비 {upoGearOpen ? '▴' : '▾'}
+                </button>
+              )}
+              <div className="upo-bar-right">
+                {simView === 'attack' && (
+                  <span className="seg upo-seg" title={'무엇을 최대화할지\n딜 기여 = 한타 딜 × 버티는 사이클 수 — 죽으면 딜을 못 넣으므로 체력·방어도 기여로 계산 (권장)\n한타 딜 = 순수 화력만 — 생존을 무시해 셔츠(체력)를 끝까지 안 삼'}>
+                    <span className="lbl">목표</span>
+                    {([['contrib', '딜 기여'], ['burst', '한타 딜']] as const).map(([v, label]) => (
+                      <button key={v} className={upoObj === v ? 'on' : ''} onClick={() => setUpoObj(v)}>{label}</button>
+                    ))}
+                  </span>
+                )}
+                <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
+                  <span className="lbl">상대</span>
+                  {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
+                    <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
                   ))}
                 </span>
-              )}
-              <span className="seg upo-seg" title={'상대 진행도\n풀빌드 = 완성된 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n나와 동일 = 상대도 나와 같은 구매 수 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤은 거의 사라짐'}>
-                <span className="lbl">상대</span>
-                {([['full', '풀빌드'], ['sync', '나와 동일']] as const).map(([v, label]) => (
-                  <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
-                ))}
-              </span>
-              <span className="upo-hint">Y = {simView === 'attack' ? (upoObj === 'contrib' ? '총 딜 기여' : '한타 딜') : '생존 컷'} · X = 누적 코인</span>
+              </div>
             </div>
+            {upoGearOpen && upoGearRows.length > 0 && (
+              <div className="upo-gearedit">
+                {upoGearRows.map((r) => {
+                  const cur = upoItems[r.slot] ?? r.defIdx
+                  return (
+                    <div key={r.slot} className="upo-ge-row">
+                      <span className="upo-ge-lbl">{r.label}</span>
+                      <select value={cur} onChange={(e) => setUpoItems((m) => ({ ...m, [r.slot]: +e.target.value }))}>
+                        {r.cands.map((c, i) => (
+                          <option key={i} value={i}>{c.name} ({Math.round((c.pct || 0) * 100)}%)</option>
+                        ))}
+                      </select>
+                      {r.neck && (
+                        <em className="upo-ge-note">
+                          {upoKind === 'attack' ? '공목' : '방목'} 성향 기본
+                          {!r.matched && ' · 표본 없어 실착용 기준'}
+                        </em>
+                      )}
+                    </div>
+                  )
+                })}
+                <button className="upo-ge-reset" onClick={() => setUpoItems({})}
+                  disabled={Object.keys(upoItems).length === 0}>기본으로</button>
+              </div>
+            )}
             {/* 구매 로드맵 — 칩 흐름을 컷 달성 구분선이 페이즈로 나눔.
                 세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
             <div className="upo-roads">
@@ -1161,7 +1216,7 @@ export default function App() {
               { tone: 'greedy', steps: upgradeOrders.greedy },
               { tone: 'rank', steps: upgradeOrders.ranker },
             ]} />
-            <div className="upo-legend">
+            <div className="upo-legend" title={'완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이\n신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정'}>
               {([
                 ['추천 (효율)', 'eff', upgradeOrders.efficiency],
                 ['탐욕', 'greedy', upgradeOrders.greedy],
@@ -1171,7 +1226,7 @@ export default function App() {
                   {label} <span className="upo-leg-avg">{simView === 'attack' ? (upoObj === 'contrib' ? '평균 기여' : '평균 딜') : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
                 </button>
               ))}
-              <span className="upo-leg-note">완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이 · 클릭하면 위 로드맵이 바뀜 · 신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정</span>
+              <span className="upo-leg-note">순서를 클릭해 로드맵 전환 · 평균 = 코인 가중 경로 평균</span>
             </div>
           </section>
         </>
