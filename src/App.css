@@ -164,8 +164,54 @@
 .favbtn { font: inherit; font-size: 16px; color: var(--text-3); background: none; border: none; cursor: pointer; padding: 0; }
 .favbtn:hover { color: var(--gold); }
 
+/* ---------- 정보 팝오버 (탭으로 열림 · title로 hover도 유지) ---------- */
+.info { position: relative; display: inline-flex; align-items: center; }
+.info-btn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; font: inherit; font-size: 11.5px; line-height: 1;
+  color: var(--text-3); background: none; border: none; border-radius: 50%; cursor: pointer; transition: 0.12s;
+}
+/* 탭 영역만 44px로 확장 (아이콘 크기·레이아웃은 그대로) — 손가락으로도 확실히 눌리게 */
+.info-btn::after {
+  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 44px; height: 44px;
+}
+.info-btn:hover { color: var(--accent-2); }
+.info-btn.on { color: var(--accent-2); background: var(--accent-weak); }
+.info-pop {
+  position: absolute; top: calc(100% + 6px); z-index: 40;
+  width: max-content; max-width: min(320px, 72vw);
+  white-space: pre-line; text-align: left; font-style: normal;
+  font-family: var(--sans); font-size: 11px; font-weight: 400; line-height: 1.65; color: var(--text-2);
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.7);
+  animation: fadeIn 0.12s ease both;
+}
+.info-pop.right { right: 0; }
+.info-pop.left { left: 0; }
+
 /* ---------- Auto setting ---------- */
 .auto { padding: 16px 18px; display: flex; flex-direction: column; gap: 13px; }
+/* 접힘 요약 헤더 — 데스크톱에서도 기본 접힘이라 클릭 가능함이 분명하게 */
+.auto-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; font: inherit; text-align: left;
+  color: var(--text); background: var(--inset); border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 10px 9px 12px; cursor: pointer; transition: 0.12s;
+}
+.auto-head:hover { border-color: var(--accent); background: var(--accent-weak); }
+.ah-sum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.ah-src { font-family: var(--display); font-size: 12.5px; font-weight: 600; }
+.ah-src.atk { color: var(--dealer); }
+.ah-src.def { color: var(--tank); }
+.ah-src.rank { color: var(--text-2); }
+.ah-sum em { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.ah-sum em::before { content: '·'; margin-right: 8px; color: var(--line-2); }
+.ah-more {
+  margin-left: auto; flex-shrink: 0; font-size: 11.5px; font-weight: 600; color: var(--accent-2);
+  background: var(--accent-weak); border: 1px solid var(--accent); border-radius: 999px; padding: 4px 11px;
+}
+.auto-head:hover .ah-more { background: var(--accent); color: #fff; }
 .auto-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .auto-row input[type='range'] {
   flex: 1; min-width: 140px; height: 4px; -webkit-appearance: none; appearance: none;
@@ -462,7 +508,8 @@
 .results { display: grid; gap: 10px; }
 .results.five { grid-template-columns: repeat(2, 1fr); }
 .results.five .rp.overall { grid-column: 1 / -1; }
-.rp { background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 15px 18px; position: relative; overflow: hidden; }
+/* overflow는 visible — 큰 숫자 옆 ⓘ 팝오버가 잘리지 않게 (상단 바는 자체 radius로 처리) */
+.rp { background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 15px 18px; position: relative; }
 .rp.dealer { --role: var(--dealer); --role-weak: var(--dealer-weak); }
 .rp.armor { --role: var(--tank); --role-weak: var(--tank-weak); }
 .rp.evade { --role: var(--evadet); --role-weak: var(--evadet-weak); }
@@ -470,7 +517,7 @@
 .rp.overall { --role: var(--accent); --role-weak: var(--accent-weak); }
 .rp.single { --role: var(--accent); --role-weak: var(--accent-weak); }
 @media (max-width: 640px) { .results.five { grid-template-columns: 1fr; } }
-.rp::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--role); opacity: 0.75; }
+.rp::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 13px 13px 0 0; background: var(--role); opacity: 0.75; }
 .rp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .rp-title { font-family: var(--display); font-size: 15px; font-weight: 600; color: var(--role); }
 .rp-title em { font-style: normal; font-family: var(--sans); font-size: 10.5px; font-weight: 400; color: var(--text-3); margin-left: 5px; }
@@ -561,6 +608,18 @@
 /* 스킬 표 원킬 셀 */
 .rp td.os { color: var(--gold); font-weight: 700; cursor: help; }
 
+/* 요약 카드 — 제목·큰 숫자·컷 칩·근거 한 줄까지만. 클릭하면 스킬표까지 펼침 */
+.rp.compact { cursor: pointer; padding-bottom: 6px; }
+.rp.compact:hover { border-color: var(--role); }
+.rp-more {
+  display: block; width: 100%; margin-top: 8px; padding: 8px 0 0;
+  font: inherit; font-size: 11px; color: var(--text-3); text-align: center;
+  background: none; border: none; cursor: pointer; transition: color 0.12s;
+}
+.rp-more:hover { color: var(--accent-2); }
+.rp.compact .rp-more { border-top: 1px solid var(--line); color: var(--role); opacity: 0.85; }
+.rp.compact:hover .rp-more { opacity: 1; }
+
 /* 패널 근거: 상대 구성 한 줄 (헤더 바로 아래) */
 .rp-basis {
   font-size: 10.5px; color: var(--text-3); margin: -2px 0 9px;
@@ -617,9 +676,13 @@
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; }
   .mode-right { width: 100%; margin-left: 0; }
-  /* 티어 토글: 7개를 폭에 꽉 채워 브론즈까지 보이게 */
-  .mode-right .seg:not(.big) { width: 100%; }
-  .mode-right .seg:not(.big) button { flex: 1; padding: 6px 2px; font-size: 11px; white-space: nowrap; }
+  /* 티어 토글: 7개를 폭에 꽉 채우되, 안 들어가면 가로 스크롤(페이지는 안 밀리게) */
+  .mode-right .seg:not(.big) {
+    width: 100%; max-width: 100%; overflow-x: auto; justify-content: flex-start;
+    scrollbar-width: none;
+  }
+  .mode-right .seg:not(.big)::-webkit-scrollbar { display: none; }
+  .mode-right .seg:not(.big) button { flex: 1 0 auto; padding: 6px 8px; font-size: 11px; white-space: nowrap; }
   .hero .seg.big { width: 100%; }
   .hero .seg.big button { flex: 1; }
   /* 킷 칩: 이름 한 줄 유지 + 점수는 아래 줄로 */
@@ -627,4 +690,26 @@
   .chip b { margin-right: auto; }
   .chip .use { order: 2; }
   .chip .tri { order: 3; flex-basis: 100%; justify-content: flex-start; gap: 14px; }
+
+  /* 터치 타깃 — 주요 인터랙션 최소 40px (데스크톱 크기는 그대로) */
+  .seg button { min-height: 40px; }
+  .sim-tabs button { min-height: 44px; }
+  .kh-sort button { min-height: 40px; padding: 0 12px; }
+  .upo-leg { min-height: 40px; }
+  .upo-buy { min-height: 40px; }
+  .upo-gear-btn { min-height: 40px; padding: 0 12px; }
+  .upo-ge-reset { min-height: 40px; padding: 0 12px; }
+  .upo-ge-row select { min-height: 40px; }
+  .chip { min-height: 44px; }
+  .auto-head, .m-head { min-height: 48px; }
+  .rp-more { min-height: 42px; }
+  .favbtn { min-width: 40px; min-height: 40px; font-size: 20px; }
+  .gp-head button { min-height: 36px; padding: 0 12px; }
+  .gp-step button { width: 34px; height: 34px; }
+  .info-btn { width: 32px; height: 32px; font-size: 13px; }
+  /* 팝오버는 하단 시트로 — 좁은 화면에서 가로 넘침 방지 */
+  .info-pop {
+    position: fixed; left: 12px; right: 12px; top: auto; bottom: 12px;
+    width: auto; max-width: none; z-index: 90; font-size: 12px;
+  }
 }

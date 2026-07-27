@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { characters } from './data/characters'
 import { iconNum } from './data/icons'
@@ -148,6 +148,35 @@ function formula(hits: { fixed: number; percent: number }[]): string {
   return `${Math.round(f)}+${Math.round(p * 100) / 100}×공격`
 }
 const gearLevelCount = (g: GearState) => Object.values(g).reduce((s, p) => s + p.level, 0)
+// 빌드 순서 라벨 (범례 · 접힘 요약 공용)
+const SRC_LABEL: Record<'atk' | 'def' | 'rank', string> = { atk: '공격 최적', def: '생존 최적', rank: '랭커 실구매' }
+
+/* ---------- 정보 팝오버 — 모바일엔 hover가 없어 탭으로도 열림 (title로 hover도 유지) ---------- */
+function Info({ text, align = 'right' }: { text: string; align?: 'left' | 'right' }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: Event) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  return (
+    <span className="info" ref={ref}>
+      <button
+        type="button"
+        className={open ? 'info-btn on' : 'info-btn'}
+        title={text}
+        aria-label="설명 보기"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
+      >ⓘ</button>
+      {open && <span className={`info-pop ${align}`} onClick={(e) => e.stopPropagation()}>{text}</span>}
+    </span>
+  )
+}
 
 /* ---------- 장비 패널 (수동 편집) ---------- */
 function GearPanel({
@@ -223,7 +252,7 @@ interface StatBasis {
   tip: string // hover 상세: 유도 과정 + 표본
 }
 function ResultPanel({
-  title, sub, tone, sim, noKit, stat,
+  title, sub, tone, sim, noKit, stat, compact, onToggle,
 }: {
   title: string
   sub: string
@@ -231,6 +260,8 @@ function ResultPanel({
   sim: SimResult
   noKit: SimResult
   stat?: StatBasis
+  compact?: boolean // 요약 카드 (스킬표·범위바·하단 요약 숨김)
+  onToggle?: () => void
 }) {
   const pctHp = (d: number) => `${Math.round((d / sim.hp) * 100)}`
   const kills = (sim.hp / sim.cyclePlusUlt).toFixed(2)
@@ -255,16 +286,17 @@ function ResultPanel({
     ? `궁 기대 데미지 ${fmt(sim.ult)} ≥ 상대 HP ${fmt(sim.hp)} — 궁 한 방에 처치`
     : `치명 최대 궁 ${fmt(sim.ultMax)} ≥ 상대 HP ${fmt(sim.hp)} — 치명타가 터지면 궁 한 방`
   return (
-    <div className={`rp ${tone}`}>
+    <div className={`rp ${tone}${compact ? ' compact' : ''}`} onClick={compact ? onToggle : undefined}>
       <div className="rp-head">
         <span className="rp-title">{title} <em>{sub}</em></span>
-        <span className="rp-big" title={bigTip}>
+        <span className="rp-big">
           <b>{fmt(sim.cyclePlusUlt)}</b>
           <span className={killTier === 'none' ? 'rp-kill' : `rp-kill k-${killTier}`} title={killTip}>
             {killTier === 'noult' && <em className="klabel">✓ 궁없이 </em>}
             {killTier === 'ult' && <em className="klabel">궁포함 </em>}
             {kills}컷
           </span>
+          <Info text={`이 숫자 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지 (잡기 제외)\n\n${bigTip}\n\nN컷 = 상대를 처치하는 데 필요한 사이클 수`} />
         </span>
       </div>
       {stat && (
@@ -273,6 +305,12 @@ function ResultPanel({
           <i>ⓘ</i>
         </div>
       )}
+      {compact ? (
+        <button type="button" className="rp-more" onClick={(e) => { e.stopPropagation(); onToggle?.() }}>
+          스킬 상세 보기 ▾
+        </button>
+      ) : (
+      <>
       <table>
         <thead>
           <tr><th className="l">스킬</th><th>공식</th><th>데미지</th><th>HP%</th></tr>
@@ -322,6 +360,11 @@ function ResultPanel({
         )}
         <span className="ke">킷 효과 <b className={gain >= 0 ? 'up' : 'down'}>{gain >= 0 ? '+' : ''}{gain}%</b></span>
       </div>
+      {onToggle && (
+        <button type="button" className="rp-more" onClick={(e) => { e.stopPropagation(); onToggle() }}>상세 접기 ▴</button>
+      )}
+      </>
+      )}
     </div>
   )
 }
@@ -337,7 +380,9 @@ interface DefPanelData {
   noHp: number
   stat?: StatBasis
 }
-function DefensePanel({ title, sub, tone, res, noRes, myHp, noHp, stat }: DefPanelData) {
+function DefensePanel({
+  title, sub, tone, res, noRes, myHp, noHp, stat, compact, onToggle,
+}: DefPanelData & { compact?: boolean; onToggle?: () => void }) {
   const inc = res.cyclePlusUlt.exp // 받는 사이클+궁 기대 피해
   const cuts = inc > 0 ? myHp / inc : Infinity
   const cutsLabel = Number.isFinite(cuts) ? (cuts <= 9.99 ? cuts.toFixed(2) : '9+') : '∞'
@@ -361,16 +406,17 @@ function DefensePanel({ title, sub, tone, res, noRes, myHp, noHp, stat }: DefPan
   const gain = Number.isFinite(survKit) && Number.isFinite(survNo) && survNo > 0 ? Math.round((survKit / survNo - 1) * 100) : 0
   const pctHp = (d: number) => `${Math.round((d / myHp) * 100)}`
   return (
-    <div className={`rp ${tone}`}>
+    <div className={`rp ${tone}${compact ? ' compact' : ''}`} onClick={compact ? onToggle : undefined}>
       <div className="rp-head">
         <span className="rp-title">{title} <em>{sub}</em></span>
-        <span className="rp-big" title={bigTip}>
+        <span className="rp-big">
           <b>{fmt(inc)}</b>
           <span className={killTier === 'none' ? 'rp-kill' : `rp-kill k-${killTier}`} title={killTip}>
             {killTier === 'noult' && <em className="klabel">궁없이 </em>}
             {killTier === 'ult' && <em className="klabel">궁포함 </em>}
             {cutsLabel}컷 {killTier === 'none' ? '버팀' : '사망'}
           </span>
+          <Info text={`이 숫자 = 상대의 한 사이클(평타+스킬) + 궁 1회로 내가 받는 기대 피해\n\n${bigTip}\n\nN컷 = 그 공격을 N번 버팀`} />
         </span>
       </div>
       {stat && (
@@ -379,6 +425,12 @@ function DefensePanel({ title, sub, tone, res, noRes, myHp, noHp, stat }: DefPan
           <i>ⓘ</i>
         </div>
       )}
+      {compact ? (
+        <button type="button" className="rp-more" onClick={(e) => { e.stopPropagation(); onToggle?.() }}>
+          위협 상세 보기 ▾
+        </button>
+      ) : (
+      <>
       <table>
         <thead>
           <tr><th className="l">위협 TOP {res.top5.length || ''}</th><th>사이클+궁</th><th>내 HP%</th></tr>
@@ -416,6 +468,11 @@ function DefensePanel({ title, sub, tone, res, noRes, myHp, noHp, stat }: DefPan
         <span>내 HP <b>{fmt(myHp)}</b></span>
         <span className="ke">방어킷 효과 <b className={gain >= 0 ? 'up' : 'down'}>{gain >= 0 ? '+' : ''}{gain}%</b></span>
       </div>
+      {onToggle && (
+        <button type="button" className="rp-more" onClick={(e) => { e.stopPropagation(); onToggle() }}>상세 접기 ▴</button>
+      )}
+      </>
+      )}
     </div>
   )
 }
@@ -547,6 +604,11 @@ export default function App() {
   const [upoItems, setUpoItems] = useState<Record<string, number>>({}) // 슬롯→아이템 인덱스 오버라이드
   const [methodOpen, setMethodOpen] = useState(true)
   const [simView, setSimView] = useState<'attack' | 'defense'>('attack') // 공격/방어 탭
+  // 내 세팅(순서·로드맵·차트)은 기본 접힘 — 결과를 먼저 보여줌. 슬라이더만 접힘에서도 노출
+  const [autoOpen, setAutoOpen] = useState(false)
+  // 요약 결과 패널 중 상세를 펼친 것 (여러 개 동시 허용)
+  const [openRp, setOpenRp] = useState<Record<string, boolean>>({})
+  const toggleRp = (k: string) => setOpenRp((m) => ({ ...m, [k]: !m[k] }))
   // 기준 장비 오버라이드는 캐릭터/티어가 바뀌면 무효 → 초기화
   useEffect(() => { setUpoItems({}) }, [slug, tier])
 
@@ -908,7 +970,7 @@ export default function App() {
   // 표시용 순서 — 세 빌드 순서를 모두 현재 탭(kind·킷) 지표로 재생. 소스·탭 일치면 재생 생략.
   // 재생 시 원 순서의 아이템 인덱스를 강제 → 목걸이 변형·레벨 수가 탭에 따라 흔들리지 않음.
   const displayBuilds = useMemo(() => {
-    if (!buildOrders) return null
+    if (!buildOrders || !autoOpen) return null // 접힘 상태에선 표시용 재생(비용 큼) 생략
     const opp = upoOpp === 'sync' ? 'sync' : maxStageOf(slug, tier)
     const kit = upoKind === 'attack' ? selectedKit : selectedDefKit
     const srcIdx = (steps: UpgradeStep[]) => {
@@ -923,7 +985,7 @@ export default function App() {
       def: upoKind === 'defense' ? buildOrders.def : replay(buildOrders.def),
       rank: upoKind === 'attack' ? buildOrders.rank : replay(buildOrders.rank),
     }
-  }, [buildOrders, upoKind, selectedKit, selectedDefKit, upoOpp, slug, tier])
+  }, [buildOrders, autoOpen, upoKind, selectedKit, selectedDefKit, upoOpp, slug, tier])
   // 차트 컷 기준선: 방어=정수 컷(1컷/2컷…), 공격=없음
   const upoMarks = useMemo(() => {
     if (!displayBuilds || upoKind === 'attack') return []
@@ -1089,14 +1151,38 @@ export default function App() {
       <SecHead
         title="내 세팅"
         sub={setting === 'auto'
-          ? '구매 순서를 고르면 그 순서로 진행 — 슬라이더가 게임 시점입니다'
+          ? (autoOpen
+            ? '구매 순서를 고르면 그 순서로 진행 — 슬라이더가 게임 시점입니다'
+            : '슬라이더로 게임 시점만 조절 · 펼치면 구매 순서·로드맵·차트')
           : '장비 레벨·아이템과 상대를 직접 조정합니다'}
       />
-      {setting === 'auto' && buildOrders && displayBuilds && (
-        <section className="panel auto upo">
+      {setting === 'auto' && buildOrders && (
+        <section className={autoOpen ? 'panel auto upo open' : 'panel auto upo'}>
+          {/* 접힘 요약 — 헤더 전체가 토글 (결과를 먼저 보이게 기본 접힘) */}
+          <button className="auto-head" onClick={() => setAutoOpen((v) => !v)} aria-expanded={autoOpen}>
+            <span className="ah-sum">
+              <b className={`ah-src ${buildSrc}`}>{SRC_LABEL[buildSrc]}</b>
+              <em>{stageEff}/{maxStage}구매</em>
+              <em>상대 {upoOpp === 'full' ? '만렙' : '동일레벨'}</em>
+            </span>
+            <span className="ah-more">{autoOpen ? '접기 ▴' : '펼치기 ▾'}</span>
+          </button>
+          {/* 게임 시점 슬라이더 — 자주 쓰므로 접힘 상태에서도 노출 */}
+          <div className="auto-row">
+            <span className="lbl">게임 시점</span>
+            <input type="range" min={1} max={maxStage} value={stageEff} onChange={(e) => setStage(+e.target.value)} />
+            <span className="seg">
+              {presets.map(([label, v]) => (
+                <button key={label} className={stageEff === v ? 'on' : ''} onClick={() => setStage(v)}>{label}</button>
+              ))}
+            </span>
+            <span className="stage-n"><b>{stageEff}</b>/{maxStage}구매</span>
+          </div>
+          {autoOpen && displayBuilds && (
+          <>
           {/* 순서 소스(=범례) + 기준 장비 + 상대 진행도 */}
           <div className="upo-bar">
-            <div className="upo-legend" title={'완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이\n순서를 고르면 그게 곧 내 장비 진행이 됩니다\n신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정'}>
+            <div className="upo-legend">
               {([
                 ['공격 최적', 'atk', displayBuilds.atk],
                 ['생존 최적', 'def', displayBuilds.def],
@@ -1106,6 +1192,7 @@ export default function App() {
                   {label} <span className="upo-leg-avg">{simView === 'attack' ? '평균 기여' : '평균 생존'} <b>{steps.length ? upoVal(upoAvg(steps), upoKind) : '–'}</b></span>
                 </button>
               ))}
+              <Info align="left" text={'구매 순서 — 고른 순서가 곧 내 장비 진행이 됩니다\n\n· 공격 최적: 같은 코인에서 한타 딜이 가장 높게 오르는 순서\n· 생존 최적: 같은 코인에서 버티는 컷이 가장 빨리 오르는 순서\n· 랭커 실구매: 랭커 매치에서 실제로 산 순서\n\n완성하면 셋 다 같아짐 — 가는 길(같은 코인에서 얼마나 센가)이 순서의 차이\n신발(이동)은 유틸이라 랭커 실구매 타이밍에 고정'} />
             </div>
             <div className="upo-bar-right">
               {upoGearRows.length > 0 && (
@@ -1115,13 +1202,14 @@ export default function App() {
                   기준 장비 {upoGearOpen ? '▴' : '▾'}
                 </button>
               )}
-              <span className="upo-ctl" title={'상대 세팅\n만렙 = 장비를 다 갖춘 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n동일레벨 = 상대도 나와 같은 레벨 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤이 거의 사라짐'}>
+              <span className="upo-ctl">
                 <span className="lbl">상대 세팅</span>
                 <span className="seg upo-seg">
                   {([['full', '만렙'], ['sync', '동일레벨']] as const).map(([v, label]) => (
                     <button key={v} className={upoOpp === v ? 'on' : ''} onClick={() => setUpoOpp(v)}>{label}</button>
                   ))}
                 </span>
+                <Info text={'로드맵이 가정하는 상대의 성장 상태\n\n· 만렙: 장비를 다 갖춘 상대 기준 — 원콤 시점이 의미 있게 잡힘 (권장)\n· 동일레벨: 상대도 나와 같은 레벨 — 대등한 교전이라 초반부터 원콤이 되어 마일스톤이 거의 사라짐'} />
               </span>
             </div>
           </div>
@@ -1150,17 +1238,6 @@ export default function App() {
                 disabled={Object.keys(upoItems).length === 0}>기본으로</button>
             </div>
           )}
-          {/* 게임 시점 슬라이더 */}
-          <div className="auto-row">
-            <span className="lbl">게임 시점</span>
-            <input type="range" min={1} max={maxStage} value={stageEff} onChange={(e) => setStage(+e.target.value)} />
-            <span className="seg">
-              {presets.map(([label, v]) => (
-                <button key={label} className={stageEff === v ? 'on' : ''} onClick={() => setStage(v)}>{label}</button>
-              ))}
-            </span>
-            <span className="stage-n"><b>{stageEff}</b>/{maxStage}구매</span>
-          </div>
           {/* 구매 로드맵 — 슬라이더 이전=구매됨 / 이후=예정. 칩 클릭 → 그 시점으로 이동.
               세 순서를 같은 셀에 겹쳐 렌더(비활성 숨김) → 전환해도 높이 고정 */}
           <div className="upo-roads">
@@ -1192,13 +1269,13 @@ export default function App() {
                           </span>
                         </div>
                         {miles && (
-                          <div className={`upo-cut ${miles[0].tone}${todo ? ' todo' : ''}`}
-                            title={upoKind === 'attack'
-                              ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)\n궁없이 원콤 = 궁을 아껴도 사이클만으로 처치 (최상)'
-                              : 'N컷 = 상대의 사이클+궁 N번을 버티는 체력·방어'}>
+                          <div className={`upo-cut ${miles[0].tone}${todo ? ' todo' : ''}`}>
                             {miles.map((x) => (
                               <b key={x.label} className={x.strong ? `${x.tone} noult` : x.tone}>✓ {x.label}</b>
                             ))}
+                            <Info align="left" text={upoKind === 'attack'
+                              ? '원콤 = 한 사이클(평타+스킬) + 궁 1회의 기대 데미지가 그 그룹 평균 HP 이상 (잡기 제외)\n궁없이 원콤 = 궁을 아껴도 사이클만으로 처치 (최상)'
+                              : 'N컷 = 상대의 사이클+궁 N번을 버티는 체력·방어\n예: 2컷 = 상대의 한 사이클+궁을 두 번 맞아야 죽음'} />
                             <small>{i + 1}번째 구매 · 누적 {fmt(s.cumCoin)}코인{upoKind === 'attack' && miles.every((x) => !x.strong) ? ' · 궁 포함' : ''}</small>
                           </div>
                         )}
@@ -1226,6 +1303,8 @@ export default function App() {
             ))}
             {build && <span className="src">구매 순서: 랭커 매치 {build.samples.toLocaleString()}판 (Neople API)</span>}
           </div>
+          </>
+          )}
         </section>
       )}
 
@@ -1373,6 +1452,9 @@ export default function App() {
           <span className="kh-legend">
             실제 착용 킷 후보 · ★ 종합 최적
             {fieldMode && <> · <em className="t-dealer">딜러</em> <em className="t-armor">방탱</em> <em className="t-evade">회탱</em> (●=1위)</>}
+            <Info text={fieldMode
+              ? '각 칩의 숫자 3개 = 그 킷을 끼고 상대 유형별로 한 사이클+궁에 넣는 기대 데미지\n왼쪽부터 딜러 · 방탱 · 회탱 (높을수록 좋음)\n\n★ = 세 유형 합산 1위 · ● = 그 유형에서 1위\n오른쪽 회색 뱃지 = 필드 전체 착용률 (입장률 가중)\n칩을 누르면 그 킷을 낀 상태로 아래 결과가 다시 계산됩니다'
+              : '칩의 숫자 = 그 킷을 끼고 선택한 상대에게 한 사이클+궁에 넣는 기대 데미지\n★ = 1위 · 칩을 누르면 그 킷 기준으로 아래 결과가 다시 계산됩니다'} />
           </span>
         </div>
         <div className="kit-chips">
@@ -1426,10 +1508,16 @@ export default function App() {
           ? '내가 때릴 때 — 상대 유형별 한타 딜과 처치 컷 · 상대는 방어킷 복용 가정'
           : '선택한 상대와 1:1 — 스킬별 데미지와 처치 컷'}
       />
+      {/* 종합만 상세, 나머지는 요약 카드 → 클릭하면 스킬표까지 펼침 */}
       <section className={fieldMode ? 'results five' : 'results'}>
-        {sims.map((s, i) => (
-          <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat} />
-        ))}
+        {sims.map((s, i) => {
+          const foldable = fieldMode && i > 0
+          return (
+            <ResultPanel key={i} title={s.title} sub={s.sub} tone={s.tone} sim={s.sim} noKit={s.noKit} stat={s.stat}
+              compact={foldable && !openRp[`a${i}`]}
+              onToggle={foldable ? () => toggleRp(`a${i}`) : undefined} />
+          )
+        })}
       </section>
       </>
       )}
@@ -1486,9 +1574,14 @@ export default function App() {
           : '상대가 나를 때릴 때 — 선택한 방어킷 기준 1:1 받는 피해'}
       />
       <section className={defPanels.length > 1 ? 'results five' : 'results'}>
-        {defPanels.map((p, i) => (
-          <DefensePanel key={i} {...p} />
-        ))}
+        {defPanels.map((p, i) => {
+          const foldable = defPanels.length > 1 && i > 0
+          return (
+            <DefensePanel key={i} {...p}
+              compact={foldable && !openRp[`d${i}`]}
+              onToggle={foldable ? () => toggleRp(`d${i}`) : undefined} />
+          )
+        })}
       </section>
       </>
       )}
