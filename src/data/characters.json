@@ -1,6 +1,6 @@
 {
   "source": "https://cyphers.nexon.com/game/character/info/{slug}",
-  "scrapedAt": "2026-09-25",
+  "scrapedAt": "2026-10-02",
   "note": "공식 기본 능력치. statKeys: attack=공격, crit=치명, hp=체력, evade=회피, defense=방어, move=이동",
   "characters": [
     { "slug": "loras", "name": "로라스", "attack": 119, "crit": 56, "hp": 1800, "evade": 54, "defense": 15, "move": 332 },
@@ -8,7 +8,7 @@
     { "slug": "louis", "name": "루이스", "attack": 119, "crit": 55, "hp": 1830, "evade": 54, "defense": 14.25, "move": 337 },
     { "slug": "tara", "name": "타라", "attack": 110, "crit": 57, "hp": 1650, "evade": 50, "defense": 11, "move": 313 },
     { "slug": "trivia", "name": "트리비아", "attack": 86, "crit": 57, "hp": 1350, "evade": 52, "defense": 10, "move": 305 },
-    { "slug": "cain", "name": "카인", "attack": 95, "crit": 59, "hp": 1450, "evade": 52, "defense": 10, "move": 310 },
+    { "slug": "cain", "name": "카인", "attack": 95, "crit": 59, "hp": 1450, "evade": 52, "defense": 11, "move": 310 },
     { "slug": "rena", "name": "레나", "attack": 105, "crit": 52, "hp": 1900, "evade": 55.75, "defense": 14.75, "move": 330 },
     { "slug": "drexler", "name": "드렉슬러", "attack": 86, "crit": 54, "hp": 1500, "evade": 52.5, "defense": 13, "move": 315 },
     { "slug": "doyle", "name": "도일", "attack": 107, "crit": 45, "hp": 2170, "evade": 54.5, "defense": 17, "move": 320 },
