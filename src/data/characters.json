@@ -1,6 +1,6 @@
 {
   "source": "https://cyphers.nexon.com/game/character/info/{slug}",
-  "scrapedAt": "2026-10-09",
+  "scrapedAt": "2026-10-16",
   "note": "공식 기본 능력치. statKeys: attack=공격, crit=치명, hp=체력, evade=회피, defense=방어, move=이동",
   "characters": [
     { "slug": "loras", "name": "로라스", "attack": 119, "crit": 56, "hp": 1800, "evade": 54, "defense": 15, "move": 332 },
@@ -26,7 +26,7 @@
     { "slug": "willard", "name": "윌라드", "attack": 86, "crit": 57, "hp": 1500, "evade": 52.5, "defense": 10, "move": 305 },
     { "slug": "lleyton", "name": "레이튼", "attack": 111, "crit": 50, "hp": 2050, "evade": 57, "defense": 14.75, "move": 315 },
     { "slug": "michelle", "name": "미쉘", "attack": 90, "crit": 50, "hp": 1450, "evade": 56.5, "defense": 10.5, "move": 310 },
-    { "slug": "rin", "name": "린", "attack": 92, "crit": 52, "hp": 2050, "evade": 60, "defense": 16.25, "move": 310 },
+    { "slug": "rin", "name": "린", "attack": 92, "crit": 52, "hp": 2050, "evade": 60, "defense": 17.25, "move": 310 },
     { "slug": "viktor", "name": "빅터", "attack": 83, "crit": 53, "hp": 1500, "evade": 53.5, "defense": 12.5, "move": 310 },
     { "slug": "carlos", "name": "카를로스", "attack": 115, "crit": 58, "hp": 1700, "evade": 55, "defense": 12.5, "move": 340 },
     { "slug": "hotaru", "name": "호타루", "attack": 111, "crit": 58, "hp": 1610, "evade": 58, "defense": 11.5, "move": 332 },
